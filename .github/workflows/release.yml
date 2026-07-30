@@ -90,11 +90,9 @@ jobs:
           install -Dm644 LICENSE \
               "$DESTDIR/usr/share/licenses/$PKGNAME/LICENSE"
 
-          # Build
+          # Build (output goes to the current directory)
           dpkg-deb --build --root-owner-group "$DESTDIR" \
-              "$(pwd)/${PKGNAME}_${VERSION}_all.deb"
-
-          cp "$(pwd)/${PKGNAME}_${VERSION}_all.deb" .
+              "${PKGNAME}_${VERSION}_all.deb"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
