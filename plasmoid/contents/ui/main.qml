@@ -214,6 +214,14 @@ PlasmoidItem {
         onTriggered: root.rafraichirPlayer()
     }
 
+    // Délai avant rafraîchissement après une commande de transport :
+    // laisse le temps au renderer de changer d'état avant de relire.
+    Timer {
+        id: delaiRafraichir
+        interval: 500
+        onTriggered: root.rafraichirPlayer()
+    }
+
     readonly property string icone: "org.gmediarender.kde"
     Plasmoid.icon: icone
     toolTipMainText: i18n("Bureau Receivers")
@@ -401,7 +409,14 @@ PlasmoidItem {
                         from: 0
                         to: Math.max(1, playerDuration)
                         value: playerPosition
-                        enabled: playerDuration > 0
+                        enabled: playerDuration > 0 && joueurActif !== "" && joueurActif !== "AirPlay" && joueurActif !== "Spotify"
+                        onMoved: {
+                            occupe = true
+                            shell.lancer("--player " + joueurActif + " seek " + Math.round(value), function(){
+                                occupe = false
+                                delaiRafraichir.start()
+                            })
+                        }
                     }
                     PlasmaComponents.Label {
                         text: {
@@ -427,18 +442,34 @@ PlasmoidItem {
 
                     PlasmaComponents.ToolButton {
                         icon.name: "media-skip-backward"
-                        onClicked: shell.lancer("--player " + joueurActif + " prev", function(){ root.rafraichirPlayer() })
+                        onClicked: {
+                            occupe = true
+                            shell.lancer("--player " + joueurActif + " prev", function(){
+                                occupe = false
+                                delaiRafraichir.start()
+                            })
+                        }
                     }
                     PlasmaComponents.ToolButton {
                         icon.name: playerStatus === "Playing" ? "media-playback-pause" : "media-playback-start"
                         onClicked: {
                             var cmd = playerStatus === "Playing" ? "pause" : "play";
-                            shell.lancer("--player " + joueurActif + " " + cmd, function(){ root.rafraichirPlayer() })
+                            occupe = true
+                            shell.lancer("--player " + joueurActif + " " + cmd, function(){
+                                occupe = false
+                                delaiRafraichir.start()
+                            })
                         }
                     }
                     PlasmaComponents.ToolButton {
                         icon.name: "media-skip-forward"
-                        onClicked: shell.lancer("--player " + joueurActif + " next", function(){ root.rafraichirPlayer() })
+                        onClicked: {
+                            occupe = true
+                            shell.lancer("--player " + joueurActif + " next", function(){
+                                occupe = false
+                                delaiRafraichir.start()
+                            })
+                        }
                     }
                 }
 

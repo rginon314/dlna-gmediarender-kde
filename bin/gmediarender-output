@@ -265,6 +265,22 @@ cmd_player() {
                     ;;
                 next)     soap_action="Next";;
                 prev)     soap_action="Previous";;
+                seek)
+                    # Seek to a position in seconds (cmd arg 3).
+                    local target="${3:-0}"
+                    # Convert seconds to H:MM:SS.
+                    local h m s timestr
+                    h=$((target / 3600))
+                    m=$(((target % 3600) / 60))
+                    s=$((target % 60))
+                    timestr=$(printf '%d:%02d:%02d' "$h" "$m" "$s")
+                    curl -s -X POST "$url" \
+                        -H 'Content-Type: text/xml; charset="utf-8"' \
+                        -H 'SOAPAction: "urn:schemas-upnp-org:service:AVTransport:1#Seek"' \
+                        -d "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\"><s:Body><u:Seek xmlns:u=\"urn:schemas-upnp-org:service:AVTransport:1\"><InstanceID>0</InstanceID><Unit>REL_TIME</Unit><Target>$timestr</Target></u:Seek></s:Body></s:Envelope>" \
+                        >/dev/null 2>&1
+                    return
+                    ;;
             esac
             local body
             if [[ "$soap_action" == "Play" ]]; then
