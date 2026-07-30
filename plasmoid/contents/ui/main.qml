@@ -16,6 +16,14 @@ PlasmoidItem {
     property string descriptionActive: "…"
     property bool occupe: false
     property string dernierEtat: ""
+    property string joueurActif: ""
+    property string playerStatus: ""
+    property string playerTitle: ""
+    property string playerArtist: ""
+    property string playerAlbum: ""
+    property real playerPosition: 0
+    property real playerDuration: 0
+    property int playerVolume: 0
 
     Plasma5Support.DataSource {
         id: shell
@@ -136,6 +144,37 @@ PlasmoidItem {
         });
     }
 
+    function rafraichirPlayer() {
+        if (occupe) return;
+        var proto = "";
+        for (var i = 0; i < modeleServices.count; i++) {
+            var s = modeleServices.get(i);
+            if (s.actif && (s.nom === "AirPlay" || s.nom === "Spotify")) {
+                proto = s.nom;
+                break;
+            }
+        }
+        if (proto === "") {
+            joueurActif = "";
+            return;
+        }
+        joueurActif = proto;
+        shell.lancer("--player-info " + proto, function (sortie) {
+            var c = sortie.split("\t");
+            if (c.length >= 6) {
+                playerStatus = c[0];
+                playerTitle = c[1];
+                playerArtist = c[2];
+                playerAlbum = c[3];
+                playerPosition = parseFloat(c[4]) || 0;
+                playerDuration = parseFloat(c[5]) || 0;
+            }
+        });
+        shell.lancer("--volume-info " + proto, function (sortie) {
+            playerVolume = parseInt(sortie) || 0;
+        });
+    }
+
     Component.onCompleted: rafraichir()
 
     // Polling : vérifie si le sink actif a changé (switch externe).
@@ -170,6 +209,12 @@ PlasmoidItem {
                 })
             }
         }
+    }
+
+    // Polling du player : met à jour les infos de lecture toutes les 1 s.
+    Timer {
+        interval: 1000; running: true; repeat: true
+        onTriggered: root.rafraichirPlayer()
     }
 
     readonly property string icone: "org.gmediarender.kde"
@@ -308,6 +353,130 @@ PlasmoidItem {
                 Layout.fillWidth: true
                 Layout.topMargin: Kirigami.Units.smallSpacing
                 Layout.bottomMargin: Kirigami.Units.smallSpacing
+            }
+
+            // --- Section : Now Playing (player controls) ---
+
+            // Affiché seulement si un player est actif.
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.leftMargin: Kirigami.Units.smallSpacing
+                Layout.rightMargin: Kirigami.Units.smallSpacing
+                visible: joueurActif !== ""
+                spacing: Kirigami.Units.smallSpacing
+
+                PlasmaComponents.Label {
+                    text: i18n("Now Playing — %1", joueurActif)
+                    font: Kirigami.Theme.smallFont
+                    opacity: 0.6
+                }
+
+                // Track info
+                PlasmaComponents.Label {
+                    text: playerTitle || i18n("(no track info)")
+                    elide: Text.ElideRight
+                    Layout.fillWidth: true
+                    font.bold: true
+                }
+                PlasmaComponents.Label {
+                    text: playerArtist ? playerArtist + (playerAlbum ? " — " + playerAlbum : "") : ""
+                    elide: Text.ElideRight
+                    Layout.fillWidth: true
+                    font: Kirigami.Theme.smallFont
+                    opacity: 0.7
+                    visible: playerArtist !== ""
+                }
+
+                // Time slider
+                RowLayout {
+                    Layout.fillWidth: true
+                    PlasmaComponents.Label {
+                        text: {
+                            var m = Math.floor(playerPosition / 60);
+                            var s = Math.floor(playerPosition % 60);
+                            return m + ":" + (s < 10 ? "0" + s : s);
+                        }
+                        font: Kirigami.Theme.smallFont
+                        opacity: 0.7
+                    }
+                    PlasmaComponents.Slider {
+                        Layout.fillWidth: true
+                        from: 0
+                        to: Math.max(1, playerDuration)
+                        value: playerPosition
+                        enabled: playerDuration > 0
+                    }
+                    PlasmaComponents.Label {
+                        text: {
+                            var m = Math.floor(playerDuration / 60);
+                            var s = Math.floor(playerDuration % 60);
+                            return m + ":" + (s < 10 ? "0" + s : s);
+                        }
+                        font: Kirigami.Theme.smallFont
+                        opacity: 0.7
+                    }
+                }
+
+                // Transport buttons
+                RowLayout {
+                    Layout.fillWidth: true
+                    Layout.alignment: Qt.AlignHCenter
+                    spacing: Kirigami.Units.largeSpacing
+
+                    PlasmaComponents.ToolButton {
+                        icon.name: "media-skip-backward"
+                        enabled: joueurActif !== "" && joueurActif !== "DLNA"
+                        onClicked: shell.lancer("--player " + joueurActif + " prev", function(){})
+                    }
+                    PlasmaComponents.ToolButton {
+                        icon.name: playerStatus === "Playing" ? "media-playback-pause" : "media-playback-start"
+                        enabled: joueurActif !== "" && joueurActif !== "DLNA"
+                        onClicked: {
+                            var cmd = playerStatus === "Playing" ? "pause" : "play";
+                            shell.lancer("--player " + joueurActif + " " + cmd, function(){ root.rafraichirPlayer() })
+                        }
+                    }
+                    PlasmaComponents.ToolButton {
+                        icon.name: "media-skip-forward"
+                        enabled: joueurActif !== "" && joueurActif !== "DLNA"
+                        onClicked: shell.lancer("--player " + joueurActif + " next", function(){})
+                    }
+                }
+
+                // Volume slider
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Kirigami.Units.smallSpacing
+                    Kirigami.Icon {
+                        source: "audio-volume-low"
+                        Layout.preferredWidth: Kirigami.Units.iconSizes.small
+                        Layout.preferredHeight: Kirigami.Units.iconSizes.small
+                        opacity: 0.7
+                    }
+                    PlasmaComponents.Slider {
+                        Layout.fillWidth: true
+                        from: 0
+                        to: 100
+                        value: playerVolume
+                        enabled: joueurActif !== ""
+                        onMoved: {
+                            shell.lancer("--volume " + joueurActif + " " + Math.round(value), function(){})
+                        }
+                    }
+                    Kirigami.Icon {
+                        source: "audio-volume-high"
+                        Layout.preferredWidth: Kirigami.Units.iconSizes.small
+                        Layout.preferredHeight: Kirigami.Units.iconSizes.small
+                        opacity: 0.7
+                    }
+                }
+            }
+
+            Kirigami.Separator {
+                Layout.fillWidth: true
+                Layout.topMargin: Kirigami.Units.smallSpacing
+                Layout.bottomMargin: Kirigami.Units.smallSpacing
+                visible: joueurActif !== ""
             }
 
             // --- Section : Output devices ---
