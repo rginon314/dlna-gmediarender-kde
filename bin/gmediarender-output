@@ -10,6 +10,7 @@
 #   bureau-receivers <sink-name>        # switch output device live
 #   bureau-receivers --names            # TSV: protocol<TAB>current name
 #   bureau-receivers --rename <proto> <name>  # rename a receiver
+#   bureau-receivers --rename-all <name>      # rename all receivers at once
 #
 set -euo pipefail
 
@@ -166,6 +167,24 @@ cmd_rename() {
     esac
 }
 
+cmd_rename_all() {
+    local base="$1"
+    local shairport_conf="${XDG_CONFIG_HOME:-$HOME/.config}/shairport-sync.conf"
+    local librespot_svc="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/librespot.service"
+    # Each receiver gets a protocol suffix so they're distinguishable.
+    local dlna_name="$base (DLNA)"
+    local airplay_name="$base (AirPlay)"
+    local spotify_name="$base (Spotify)"
+    # DLNA
+    sed -i "s|^GMRENDER_FRIENDLY_NAME=.*|GMRENDER_FRIENDLY_NAME=\"$dlna_name\"|" "$CONF"
+    # AirPlay
+    sed -i "s|^[[:space:]]*name[[:space:]]*=.*|    name = \"$airplay_name\";|" "$shairport_conf"
+    # Spotify
+    sed -i "s|--name \"[^\"]*\"|--name \"$spotify_name\"|" "$librespot_svc"
+    systemctl --user daemon-reload 2>/dev/null || true
+    systemctl --user restart gmediarender.service shairport-sync.service librespot.service 2>/dev/null || true
+}
+
 case "${1:-}" in
     --services)    cmd_services ;;
     --sinks)        cmd_sinks ;;
@@ -176,6 +195,7 @@ case "${1:-}" in
     --restart-all)  cmd_restart_all ;;
     --names)         cmd_names ;;
     --rename)        cmd_rename "${2:-}" "${3:-}" ;;
+    --rename-all)    cmd_rename_all "${2:-}" ;;
     "")             cmd_sinks ;;
     -h|--help)
         sed -n '2,/^$/p' "$0" | sed 's/^# \?//'

@@ -126,12 +126,11 @@ PlasmoidItem {
         });
     }
 
-    function renommer(proto, nom) {
+    function renommerTous(nom) {
         if (occupe || !nom || nom.length === 0) return;
         occupe = true;
-        // Escape single quotes for the shell command
         const safeNom = nom.replace(/'/g, "'\\''");
-        shell.lancer("--rename " + proto + " '" + safeNom + "'", function () {
+        shell.lancer("--rename-all '" + safeNom + "'", function () {
             occupe = false;
             rafraichir();
         });
@@ -197,23 +196,46 @@ PlasmoidItem {
                 anchors.fill: parent
                 spacing: Kirigami.Units.smallSpacing
 
-                ColumnLayout {
+                // Single editable name field — updates all three receivers.
+                PlasmaComponents.TextField {
+                    id: champNomGlobal
                     Layout.fillWidth: true
-                    spacing: 0
-                    PlasmaExtras.Heading {
-                        level: 4
-                        text: root.descriptionActive
-                        elide: Text.ElideRight
-                        Layout.fillWidth: true
+                    enabled: !root.occupe
+                    text: {
+                        for (let i = 0; i < modeleNoms.count; i++) {
+                            const e = modeleNoms.get(i);
+                            if (e.proto === "DLNA") return e.nom.replace(/ \(DLNA\)$/, "");
+                        }
+                        return "Bureau";
                     }
-                    PlasmaComponents.Label {
-                        text: i18n("Output device")
-                        font: Kirigami.Theme.smallFont
-                        opacity: 0.7
-                        elide: Text.ElideRight
-                        Layout.fillWidth: true
+                    placeholderText: i18n("Receiver name")
+                    readOnly: true
+
+                    MouseArea {
+                        anchors.fill: parent
+                        acceptedButtons: Qt.LeftButton
+                        onDoubleClicked: {
+                            champNomGlobal.readOnly = false;
+                            champNomGlobal.selectAll();
+                            champNomGlobal.forceActiveFocus();
+                        }
+                    }
+
+                    onAccepted: {
+                        if (!readOnly) {
+                            readOnly = true;
+                            focus = false;
+                            root.renommerTous(text);
+                        }
+                    }
+                    onActiveFocusChanged: {
+                        if (!activeFocus && !readOnly) {
+                            readOnly = true;
+                            root.renommerTous(text);
+                        }
                     }
                 }
+
                 PlasmaComponents.BusyIndicator {
                     running: root.occupe
                     visible: running
@@ -258,46 +280,11 @@ PlasmoidItem {
                         opacity: model.actif ? 1.0 : 0.4
                     }
 
-                    // Editable receiver name — looks like a label until double-clicked.
-                    PlasmaComponents.TextField {
-                        id: champNom
+                    PlasmaComponents.Label {
+                        text: model.nom
                         Layout.fillWidth: true
-                        enabled: !root.occupe
-                        text: {
-                            for (let i = 0; i < modeleNoms.count; i++) {
-                                const e = modeleNoms.get(i);
-                                if (e.proto === model.nom) return e.nom;
-                            }
-                            return model.nom;
-                        }
                         font.bold: model.actif
                         opacity: model.actif ? 1.0 : 0.5
-                        placeholderText: model.nom
-                        readOnly: true
-
-                        MouseArea {
-                            anchors.fill: parent
-                            acceptedButtons: Qt.LeftButton
-                            onDoubleClicked: {
-                                champNom.readOnly = false;
-                                champNom.selectAll();
-                                champNom.forceActiveFocus();
-                            }
-                        }
-
-                        onAccepted: {
-                            if (!readOnly) {
-                                readOnly = true;
-                                focus = false;
-                                root.renommer(model.nom, text);
-                            }
-                        }
-                        onActiveFocusChanged: {
-                            if (!activeFocus && !readOnly) {
-                                readOnly = true;
-                                root.renommer(model.nom, text);
-                            }
-                        }
                     }
 
                     PlasmaComponents.ToolButton {
