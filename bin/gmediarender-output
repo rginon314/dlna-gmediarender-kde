@@ -217,14 +217,9 @@ cmd_player() {
             esac
             ;;
         Spotify)
-            case "$cmd" in
-                play)     playerctl play 2>/dev/null ;;
-                pause)    playerctl pause 2>/dev/null ;;
-                stop)     playerctl stop 2>/dev/null ;;
-                playpause) playerctl play-pause 2>/dev/null ;;
-                next)     playerctl next 2>/dev/null ;;
-                prev)     playerctl previous 2>/dev/null ;;
-            esac
+            # librespot doesn't expose MPRIS — transport is controlled
+            # from the Spotify app on the source device.
+            echo "Spotify transport is controlled from the Spotify app" >&2
             ;;
         DLNA)
             # DLNA transport is controlled by the source (Synology), not the receiver.
@@ -242,28 +237,42 @@ cmd_player_info() {
             local path="/org/gnome/ShairportSync"
             local status title artist album pos dur
             status="$(busctl --user get-property "$bus" "$path" "$rc" PlayerState 2>/dev/null | sed 's/^s //' | tr -d '"')"
-            # Metadata is an a{sv} dict — extract title/artist/album from it.
+            # Metadata is a{sv} — format: a{sv} N "key" type "value" ...
+            # Extract xesam:title, xesam:artist, xesam:album.
             local meta
             meta="$(busctl --user get-property "$bus" "$path" "$rc" Metadata 2>/dev/null)"
-            title="$(echo "$meta" | grep -i 'title' | head -1 | sed 's/.*"//' | tr -d '"' || echo '')"
-            artist="$(echo "$meta" | grep -i 'artist' | head -1 | sed 's/.*"//' | tr -d '"' || echo '')"
-            album="$(echo "$meta" | grep -i 'album' | head -1 | sed 's/.*"//' | tr -d '"' || echo '')"
-            pos="$(busctl --user get-property "$bus" "$path" "$bus" FramePosition 2>/dev/null | awk '{print $2}' || echo '0')"
-            dur="$(busctl --user get-property "$bus" "$path" "$bus" ItemDuration 2>/dev/null | awk '{print $2}' || echo '0')"
+            # xesam:title s "value"
+            title="$(echo "$meta" | grep -oP '"xesam:title" s "\K[^"]*' || echo '')"
+            # xesam:artist as 1 "value"
+            artist="$(echo "$meta" | grep -oP '"xesam:artist" as \d+ "\K[^"]*' || echo '')"
+            album="$(echo "$meta" | grep -oP '"xesam:album" s "\K[^"]*' || echo '')"
+            # Position: FramePosition is a string like "12345" (samples).
+            # Convert to seconds (44100 Hz default).
+            pos="$(busctl --user get-property "$bus" "$path" "$rc" FramePosition 2>/dev/null | sed 's/^s //' | tr -d '"' || echo '0')"
+            if [[ "$pos" =~ ^[0-9]+$ ]]; then
+                pos=$(awk -v p="$pos" 'BEGIN{printf "%.1f", p/44100}')
+            else
+                pos="0"
+            fi
+            dur="0"
             printf '%s\t%s\t%s\t%s\t%s\t%s\n' "${status:-}" "${title:-}" "${artist:-}" "${album:-}" "${pos:-0}" "${dur:-0}"
             ;;
         Spotify)
+            # librespot doesn't expose MPRIS. Read from the event file if present.
+            local state_file="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/librespot-state"
             local status title artist album pos dur
-            status="$(playerctl status 2>/dev/null || echo '')"
-            title="$(playerctl metadata title 2>/dev/null || echo '')"
-            artist="$(playerctl metadata artist 2>/dev/null || echo '')"
-            album="$(playerctl metadata album 2>/dev/null || echo '')"
-            pos="$(playerctl position 2>/dev/null || echo '0')"
-            dur="$(playerctl metadata mpris:length 2>/dev/null | awk '{printf "%.0f", $1/1000000}' || echo '0')"
-            printf '%s\t%s\t%s\t%s\t%s\t%s\n' "${status:-}" "${title:-}" "${artist:-}" "${album:-}" "${pos:-0}" "${dur:-0}"
+            if [[ -f "$state_file" ]]; then
+                source "$state_file" 2>/dev/null
+                printf '%s\t%s\t%s\t%s\t%s\t%s\n' "${status:-}" "${title:-}" "${artist:-}" "${album:-}" "${pos:-0}" "${dur:-0}"
+            else
+                printf 'Stopped\t\t\t\t0\t0\n'
+            fi
             ;;
         DLNA)
-            printf 'Playing\t\t\t\t0\t0\n'
+            # gmediarender logs the track name — parse from journalctl.
+            local title
+            title="$(journalctl --user -u gmediarender.service --no-pager -n 5 2>/dev/null | grep -oP 'media.name = "\K[^"]*' | tail -1 || echo '')"
+            printf 'Playing\t%s\t\t\t0\t0\n' "${title:-}"
             ;;
     esac
 }
