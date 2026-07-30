@@ -79,7 +79,7 @@ PlasmoidItem {
     Component.onCompleted: rafraichir()
 
     Timer {
-        interval: 15000; running: true; repeat: true
+        interval: 5000; running: true; repeat: true
         onTriggered: if (!root.occupe) root.rafraichir()
     }
 
