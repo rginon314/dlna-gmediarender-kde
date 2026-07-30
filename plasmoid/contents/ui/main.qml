@@ -146,8 +146,7 @@ PlasmoidItem {
 
     function rafraichirPlayer() {
         if (occupe) return;
-        // Check each active service for player info.
-        // Pick the first one that has actual content (not Inactive/Stopped with no track).
+        // Build list of active protocols.
         var protos = [];
         for (var i = 0; i < modeleServices.count; i++) {
             var s = modeleServices.get(i);
@@ -157,43 +156,49 @@ PlasmoidItem {
             joueurActif = "";
             return;
         }
-        // Query each protocol, pick the first with a non-empty title or non-Inactive status.
-        var found = false;
-        function tryProto(idx) {
-            if (idx >= protos.length || found) {
-                if (!found) joueurActif = "";
-                return;
-            }
-            var proto = protos[idx];
-            shell.lancer("--player-info " + proto, function (sortie) {
-                if (found) return;
-                var c = sortie.split("\t");
-                if (c.length >= 6) {
-                    var status = c[0];
-                    var title = c[1];
-                    // Active if status is not Inactive/Stopped.
-                    // DLNA shows "Playing" even without a title.
-                    if (status !== "Inactive" && status !== "Stopped") {
-                        found = true;
-                        joueurActif = proto;
-                        playerStatus = status;
-                        playerTitle = c[1];
-                        playerArtist = c[2];
-                        playerAlbum = c[3];
-                        playerPosition = parseFloat(c[4]) || 0;
-                        playerDuration = parseFloat(c[5]) || 0;
-                        shell.lancer("--volume-info " + proto, function (vol) {
-                            playerVolume = parseInt(vol) || 0;
-                        });
-                    } else {
-                        tryProto(idx + 1);
-                    }
+        // Query the first protocol. If inactive, the next poll will try
+        // the next one. Avoid recursive callbacks — they crash plasmashell.
+        var proto = protos[0];
+        shell.lancer("--player-info " + proto, function (sortie) {
+            var c = sortie.split("\t");
+            if (c.length >= 6) {
+                var status = c[0];
+                if (status !== "Inactive" && status !== "Stopped") {
+                    joueurActif = proto;
+                    playerStatus = status;
+                    playerTitle = c[1];
+                    playerArtist = c[2];
+                    playerAlbum = c[3];
+                    playerPosition = parseFloat(c[4]) || 0;
+                    playerDuration = parseFloat(c[5]) || 0;
+                    shell.lancer("--volume-info " + proto, function (vol) {
+                        playerVolume = parseInt(vol) || 0;
+                    });
+                } else if (protos.length > 1) {
+                    // Try the next protocol.
+                    var proto2 = protos[1];
+                    shell.lancer("--player-info " + proto2, function (sortie2) {
+                        var c2 = sortie2.split("\t");
+                        if (c2.length >= 6 && c2[0] !== "Inactive" && c2[0] !== "Stopped") {
+                            joueurActif = proto2;
+                            playerStatus = c2[0];
+                            playerTitle = c2[1];
+                            playerArtist = c2[2];
+                            playerAlbum = c2[3];
+                            playerPosition = parseFloat(c2[4]) || 0;
+                            playerDuration = parseFloat(c2[5]) || 0;
+                            shell.lancer("--volume-info " + proto2, function (vol2) {
+                                playerVolume = parseInt(vol2) || 0;
+                            });
+                        } else {
+                            joueurActif = "";
+                        }
+                    });
                 } else {
-                    tryProto(idx + 1);
+                    joueurActif = "";
                 }
-            });
-        }
-        tryProto(0);
+            }
+        });
     }
 
     Component.onCompleted: rafraichir()

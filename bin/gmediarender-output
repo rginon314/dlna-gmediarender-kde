@@ -236,7 +236,6 @@ cmd_player_info() {
             local rc="$bus.RemoteControl"
             local path="/org/gnome/ShairportSync"
             local status title artist album pos dur available
-            available="$(busctl --user get-property "$bus" "$path" "$rc" Available 2>/dev/null | awk '{print $2}' || echo 'false')"
             status="$(busctl --user get-property "$bus" "$path" "$rc" PlayerState 2>/dev/null | sed 's/^s //' | tr -d '"')"
             # Metadata is a{sv} — extract xesam:title, xesam:artist, xesam:album.
             local meta
@@ -253,8 +252,8 @@ cmd_player_info() {
             else
                 pos="0"; dur="0"
             fi
-            # If not available, clear status to indicate no active session.
-            [[ "$available" == "false" ]] && status="Inactive"
+            # If stopped, show as Inactive so the applet skips it.
+            [[ "$status" == "Stopped" || "$status" == "N/A" ]] && status="Inactive"
             printf '%s\t%s\t%s\t%s\t%s\t%s\n' "${status:-}" "${title:-}" "${artist:-}" "${album:-}" "${pos:-0}" "${dur:-0}"
             ;;
         Spotify)
