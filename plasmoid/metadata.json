@@ -1,0 +1,20 @@
+{
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "Grégory D"
+            }
+        ],
+        "Category": "Multimedia",
+        "Description": "Choose the output device for the DLNA audio renderer (Bureau)",
+        "Description[fr]": "Choisit le périphérique de sortie du renderer DLNA (Bureau)",
+        "Icon": "org.gmediarender.kde",
+        "Id": "org.gmediarender.kde",
+        "License": "MIT",
+        "Name": "DLNA gmediarender",
+        "Name[fr]": "DLNA gmediarender",
+        "Version": "0.1.0"
+    },
+    "KPackageStructure": "Plasma/Applet",
+    "X-Plasma-API-Minimum-Version": "6.0"
+}

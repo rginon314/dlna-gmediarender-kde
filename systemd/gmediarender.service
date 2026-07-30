@@ -1,0 +1,20 @@
+[Unit]
+Description=UPnP/DLNA renderer (gmediarender) - receives audio pushed from Synology
+After=network.target pulseaudio.service pipewire.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/gmediarender.conf
+ExecStart=/usr/bin/gmediarender \
+    -f "${GMRENDER_FRIENDLY_NAME}" \
+    -u "${GMRENDER_UUID}" \
+    --gstout-audiosink="${GMRENDER_AUDIO_SINK}" \
+    --gstout-audiodevice="${GMRENDER_AUDIO_DEVICE}" \
+    --gstout-initial-volume-db="${GMRENDER_INITIAL_VOLUME_DB}" \
+    --mime-filter=audio
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

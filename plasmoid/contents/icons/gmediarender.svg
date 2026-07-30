@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 22 22">
+  <style type="text/css" id="current-color-scheme">
+    .ColorScheme-Text { color: #232629; }
+  </style>
+  <!-- Speaker with outgoing waves: a DLNA renderer pushing audio to a device. -->
+  <g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Speaker body -->
+    <path d="M3 8 H6 L10 5 V17 L6 14 H3 Z" fill="currentColor" stroke="none"/>
+    <!-- Outgoing waves -->
+    <path d="M13 8 A4 4 0 0 1 13 14"/>
+    <path d="M16 5.5 A7.5 7.5 0 0 1 16 16.5"/>
+  </g>
+</svg>
