@@ -10,7 +10,21 @@ set -euo pipefail
 
 CONF="${XDG_CONFIG_HOME:-$HOME/.config}/gmediarender.conf"
 
+# Returns the sink the live gmediarender stream is currently routed to.
+# Falls back to the config file if no stream is active (nothing playing).
 active_sink() {
+    # 1. Look for a live gmediarender sink-input and resolve its sink name.
+    local id sink_id sink_name
+    while read -r id sink_id _; do
+        [[ "$id" =~ ^[0-9]+$ ]] || continue
+        sink_name="$(pactl list sinks 2>/dev/null | awk -v s="$sink_id" '
+            /^Sink #/ { cur=$2 }
+            /^[	 ]*Name:/ && cur==s { print $2 }
+        ')"
+        [[ -n "$sink_name" ]] && { echo "$sink_name"; return 0; }
+    done < <(pactl list short sink-inputs 2>/dev/null | grep -i 'gmediarender')
+
+    # 2. No live stream — use the config file (for the next track).
     awk -F'"' '/^GMRENDER_AUDIO_DEVICE=/{print $2}' "$CONF"
 }
 
@@ -32,6 +46,22 @@ cmd_status() {
 
 cmd_current() {
     active_sink
+}
+
+# Force-sync the config file to match the live stream's actual sink.
+# Called after --data so the applet and config never drift apart.
+sync_config() {
+    local live
+    live="$(active_sink)"
+    [[ -z "$live" ]] && return 0
+    local conf_val
+    conf_val="$(awk -F'"' '/^GMRENDER_AUDIO_DEVICE=/{print $2}' "$CONF")"
+    [[ "$live" == "$conf_val" ]] && return 0
+    sed -i 's/^GMRENDER_AUDIO_DEVICE=/#GMRENDER_AUDIO_DEVICE=/' "$CONF"
+    sed -i "s|^#GMRENDER_AUDIO_DEVICE=\"$live\"|GMRENDER_AUDIO_DEVICE=\"$live\"|" "$CONF"
+    if ! grep -q "^GMRENDER_AUDIO_DEVICE=\"$live\"" "$CONF"; then
+        sed -i "s|^#GMRENDER_AUDIO_DEVICE=.*|GMRENDER_AUDIO_DEVICE=\"$live\"|" "$CONF"
+    fi
 }
 
 cmd_switch() {
@@ -71,7 +101,7 @@ cmd_switch() {
 }
 
 case "${1:-}" in
-    --data)   cmd_data ;;
+    --data)   sync_config; cmd_data ;;
     --status) cmd_status ;;
     --current) cmd_current ;;
     "")       cmd_data ;;
