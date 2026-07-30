@@ -1,24 +1,34 @@
-# DLNA gmediarender — KDE Plasma applet
+# Bureau Receivers — KDE Plasma applet
 
-A Plasma 6 widget that turns your Linux machine into a **DLNA renderer** able to
-receive audio pushed from a Synology NAS (Audio Station / DS audio), and lets you
-**switch the output device live** — without interrupting the current track.
+A Plasma 6 widget that turns your Linux machine into a **multi-protocol audio
+receiver** — DLNA, AirPlay, and Spotify Connect — with live output device
+switching, player controls, and track history.
 
 <p align="center">
-  <img src="plasmoid/contents/icons/gmediarender.svg" width="120" alt="DLNA gmediarender icon">
+  <img src="plasmoid/contents/icons/gmediarender.svg" width="120" alt="Bureau Receivers icon">
 </p>
 
 ## What it does
 
-- **Receives** audio pushed from any DLNA/UPnP control point (Synology Audio
-  Station, DS audio, BubbleUPnP, etc.) via [`gmediarender`][gmr].
-- **Routes** the stream through PulseAudio/PipeWire to any output device.
-- **Switches output live**: clicking a device in the applet moves the active
-  `gmediarender` stream to the new sink with `pactl move-sink-input` — no
-  service restart, no gap, the music keeps playing.
-- Shows the current device in the tooltip and highlights the active one.
+- **Receives audio from three protocols**:
+  - **DLNA** via [`gmediarender`][gmr] — from Synology Audio Station, DS audio, BubbleUPnP, etc.
+  - **AirPlay** via [`shairport-sync`][sps] — from iPhone, iPad, Mac
+  - **Spotify Connect** via [`librespot`][lrs] — from the Spotify app on any device
+- **Switches output device live** — click a device in the applet, the active
+  stream moves to the new sink with `pactl move-sink-input`. No restart, no gap.
+- **Player controls** in the applet:
+  - Now playing: track title, artist, album
+  - Timeline with position/duration (seek for DLNA)
+  - Play/pause (DLNA via UPnP SOAP)
+  - Volume slider (all protocols, via PulseAudio)
+- **Receiver management**: on/off toggles, restart buttons, editable name
+  (one name updates all three with protocol suffixes)
+- **Track history**: every track logged to `~/.config/bureau-receivers/history.tsv`
+  with timestamp, protocol, title, artist, album. Indefinite, deduplicated.
 
 [gmr]: https://github.com/hzeller/gmrender-resurrect
+[sps]: https://github.com/mikebrady/shairport-sync
+[lrs]: https://github.com/librespot-org/librespot
 
 ## Requirements
 
@@ -26,19 +36,14 @@ receive audio pushed from a Synology NAS (Audio Station / DS audio), and lets yo
 |---|---|
 | KDE Plasma ≥ 6 | the applet uses Plasma 6 QML imports |
 | PipeWire or PulseAudio | audio routing via `pactl` |
-| `gmediarender` | the DLNA renderer itself |
-| GStreamer plugins | decoding FLAC/MP3/AAC from the Synology |
-| systemd | user service for the renderer |
+| `gmediarender` (AUR: `gmrender-resurrect-git`) | DLNA renderer |
+| `shairport-sync` (AUR: `shairport-sync-git`) | AirPlay receiver |
+| `librespot` (AUR: `librespot-git`) | Spotify Connect receiver |
+| `nqptp` (AUR: `nqptp-git`) | PTP clock for shairport-sync |
+| `playerctl` | optional, for Spotify metadata |
+| GStreamer plugins | decoding FLAC/MP3/AAC |
 
-Tested on Manjaro KDE + PipeWire. The installer supports:
-
-| Distribution | gmediarender source |
-|---|---|
-| Arch / Manjaro / EndeavourOS | AUR (`gmrender-resurrect-git`) |
-| Debian / Ubuntu / Mint / KDE Neon | `apt install gmediarender` |
-| Fedora / Nobara | RPM Fusion (`dnf install gmediarender`) |
-| openSUSE | Packman (`zypper install gmediarender`) |
-| Gentoo | `emerge gmrender-resurrect` |
+Tested on Manjaro KDE + PipeWire.
 
 ## Installation
 
@@ -50,109 +55,101 @@ cd dlna-gmediarender-kde
 
 `install.sh` does everything:
 
-1. Installs `gmrender-resurrect-git` from the AUR (if not already present) and
-   the GStreamer codec plugins.
-2. Installs the `gmediarender-output` CLI helper to `~/.local/bin/`.
-3. Creates the renderer config at `~/.config/gmediarender.conf`.
-4. Installs a **user systemd service** that runs `gmediarender` as your user
-   (so it can access the audio session) and enables it.
-5. Installs the Plasma applet and reloads `plasmashell`.
+1. Installs `gmrender-resurrect-git` from the AUR + GStreamer codec plugins
+2. Installs the `gmediarender-output` CLI helper to `~/.local/bin/`
+3. Creates the renderer config at `~/.config/gmediarender.conf`
+4. Installs a **user systemd service** for `gmediarender`
+5. Installs the Plasma applet and reloads `plasmashell`
 
 After it finishes, add the widget to your panel:
 
 > Right-click the panel → **Add Widgets** → search **"DLNA gmediarender"**
 
+For AirPlay and Spotify, install them separately:
+```bash
+# AirPlay (requires nqptp first)
+yay -S nqptp-git shairport-sync-git
+sudo systemctl enable --now avahi-daemon nqptp
+
+# Spotify Connect
+yay -S librespot-git playerctl
+```
+
+Then copy the systemd units and configs from this repo's `systemd/` directory.
+
 ## Usage
 
 ### From the desktop
 
-Click the applet icon in your panel → a list of all audio output devices
-appears. The active one is highlighted with a checkmark. Click any device to
-switch — the change is instant and transparent.
+Click the applet icon → a panel opens with:
+- **Receivers section**: on/off switches, restart buttons for each protocol
+- **Name field**: double-click to edit, updates all three receivers
+- **Now Playing**: track info, timeline, play/pause, volume
+- **Output devices**: click to switch the active output
 
 ### From the terminal
 
 ```bash
-gmediarender-output              # list devices (TSV)
-gmediarender-output --current    # show active device
-gmediarender-output --status     # exit 0 if renderer running
-gmediarender-output <sink-name>  # switch output live
+gmediarender-output --services          # list receivers with on/off state
+gmediarender-output --sinks             # list output devices
+gmediarender-output --active-player     # which protocol is playing
+gmediarender-output --player-info DLNA  # track info for a protocol
+gmediarender-output --player DLNA pause # pause DLNA playback
+gmediarender-output --player DLNA seek 120  # seek to 120s
+gmediarender-output --volume DLNA 75    # set volume to 75%
+gmediarender-output --toggle gmediarender.service  # start/stop DLNA
+gmediarender-output --restart-all       # restart all receivers
+gmediarender-output --rename-all "Bureau"  # rename all receivers
+gmediarender-output --history            # last 20 tracks
+gmediarender-output --history 50         # last 50 tracks
 ```
 
-### From the Synology
+### From the source devices
 
-Open **DS audio** or **Audio Station** → play a track → tap the output icon →
-select **"Bureau"** (the renderer's friendly name, configurable).
+- **Synology**: DS audio / Audio Station → select **"Bureau (DLNA)"**
+- **Apple**: AirPlay icon → select **"Bureau (AirPlay)"**
+- **Spotify**: device icon → select **"Bureau (Spotify)"**
 
-## How the live switch works
+## Protocol support matrix
 
-`gmediarender` is started once with a fixed PulseAudio sink. When you pick a
-different device in the applet, `gmediarender-output`:
-
-1. Updates `~/.config/gmediarender.conf` (so the next service start uses it).
-2. Calls `pactl move-sink-input` on the live `gmediarender` stream to move it
-   to the new sink — the current track continues without interruption.
-3. Sets the new sink as the PulseAudio default (for the next track).
-
-No restart, no DLNA session teardown.
+| Feature | DLNA | AirPlay | Spotify |
+|---|---|---|---|
+| Receive audio | ✅ | ✅ | ✅ |
+| Track title/artist/album | ✅ UPnP | ✅ D-Bus | ❌ no MPRIS |
+| Timeline (position/duration) | ✅ UPnP | ✅ wall-clock | ❌ |
+| Play/pause | ✅ UPnP SOAP | ❌ source-controlled | ❌ source-controlled |
+| Seek | ✅ UPnP SOAP | ❌ | ❌ |
+| Next/previous | ❌ renderer limitation | ❌ source-controlled | ❌ source-controlled |
+| Volume | ✅ PulseAudio | ✅ PulseAudio | ✅ PulseAudio |
+| Live output switch | ✅ | ✅ | ✅ |
+| Track history | ✅ | ✅ | ❌ |
 
 ## Files installed
 
 | File | Purpose |
 |---|---|
-| `~/.local/bin/gmediarender-output` | CLI helper (query/switch sinks) |
-| `~/.config/gmediarender.conf` | renderer configuration |
-| `~/.config/systemd/user/gmediarender.service` | user systemd unit |
+| `~/.local/bin/gmediarender-output` | CLI helper |
+| `~/.config/gmediarender.conf` | DLNA renderer config |
+| `~/.config/shairport-sync.conf` | AirPlay receiver config |
+| `~/.config/systemd/user/gmediarender.service` | DLNA systemd unit |
+| `~/.config/systemd/user/shairport-sync.service` | AirPlay systemd unit |
+| `~/.config/systemd/user/librespot.service` | Spotify systemd unit |
+| `~/.config/bureau-receivers/history.tsv` | track history |
 | `~/.local/share/plasma/plasmoids/org.gmediarender.kde/` | the applet |
 | `~/.local/share/icons/hicolor/scalable/apps/org.gmediarender.kde.svg` | icon |
 
 ## Uninstall
 
 ```bash
-systemctl --user disable --now gmediarender
+systemctl --user disable --now gmediarender shairport-sync librespot
 rm -rf ~/.local/share/plasma/plasmoids/org.gmediarender.kde
 rm -f ~/.local/bin/gmediarender-output
-rm -f ~/.config/gmediarender.conf
-rm -f ~/.config/systemd/user/gmediarender.service
+rm -f ~/.config/gmediarender.conf ~/.config/shairport-sync.conf
+rm -f ~/.config/systemd/user/gmediarender.service ~/.config/systemd/user/shairport-sync.service
+rm -f ~/.config/systemd/user/librespot.service
+rm -rf ~/.config/bureau-receivers
 systemctl --user daemon-reload
 ```
-
-## Releases
-
-Push a tag to trigger a GitHub Actions release:
-
-```bash
-git tag v0.1.0
-git push origin v0.1.0
-```
-
-The workflow builds four package formats and attaches them to a GitHub Release:
-
-| Artifact | Format | Distributions |
-|---|---|---|
-| `dlna-gmediarender-0.1.0.plasmoid` | Plasma package | Any KDE Plasma 6 (install via *Add Widgets → Install from local file*) |
-| `dlna-gmediarender-kde_0.1.0_all.deb` | Debian package | Debian, Ubuntu, Mint, KDE Neon |
-| `dlna-gmediarender-kde-0.1.0-1.*.noarch.rpm` | RPM package | Fedora, openSUSE |
-| `dlna-gmediarender-kde-0.1.0-*.pkg.tar.zst` | Arch package | Arch, Manjaro, EndeavourOS |
-| `dlna-gmediarender-0.1.0.tar.gz` | Source tarball | Any (includes `install.sh`) |
-
-### Installing from packages
-
-```bash
-# Debian / Ubuntu
-sudo apt install ./dlna-gmediarender-kde_0.1.0_all.deb
-
-# Fedora / openSUSE
-sudo dnf install ./dlna-gmediarender-kde-0.1.0-1.*.noarch.rpm
-
-# Arch / Manjaro
-sudo pacman -U dlna-gmediarender-kde-0.1.0-*.pkg.tar.zst
-
-# Plasma applet only (any distro)
-# Add Widgets → Install from local file → select the .plasmoid
-```
-
-Tags containing a hyphen (e.g. `v0.1.0-rc1`) are published as pre-releases.
 
 ## License
 
