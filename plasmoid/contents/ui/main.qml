@@ -104,10 +104,14 @@ PlasmoidItem {
         onNewData: (source, data) => {
             disconnectSource(source)
             actif = false
-            if (!root.occupe) root.rafraichir()
-            // Relance via Timer : un appel direct provoque une récursion
-            // infinie (RangeError: Maximum call stack size exceeded).
-            relance.start()
+            // Ne pas rafraîchir pendant un switch : basculer() s'en charge,
+            // et rafraîchir en parallèle provoque un va-et-vient.
+            if (!root.occupe) {
+                debounce.start()
+            } else {
+                // On est occupé : on relance l'écoute sans rafraîchir.
+                relance.start()
+            }
         }
     }
 
@@ -117,6 +121,18 @@ PlasmoidItem {
         id: relance
         interval: 1
         onTriggered: abonnement.ecouter()
+    }
+
+    // Debounce : regroupe les événements rapides en un seul rafraîchissement.
+    // Plusieurs événements sink-input peuvent arriver d'affilée (move + change)
+    // et chacun déclencherait un rafraîchissement séparé.
+    Timer {
+        id: debounce
+        interval: 200
+        onTriggered: {
+            root.rafraichir()
+            relance.start()
+        }
     }
 
     // Filet de sécurité : rafraîchissement toutes les 30 s au cas où un
