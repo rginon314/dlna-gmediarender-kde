@@ -93,21 +93,30 @@ PlasmoidItem {
         function ecouter() {
             if (actif) return
             actif = true
+            // Chemins absolus : plasmashell peut avoir un PATH réduit.
             // stdbuf -oL désactive le buffer de sortie de pactl subscribe,
             // sinon grep ne reçoit jamais les lignes (buffer de pipe).
             // timeout 10 sur pactl : si aucun événement, le processus se
             // termine et on relance. grep -m 1 sort au premier sink-input.
-            // Le || true couvre le SIGPIPE de grep quand pactl est tué.
-            connectSource("sh -c 'stdbuf -oL timeout 10 pactl subscribe 2>/dev/null | grep --line-buffered -m 1 \"sink-input\" || true'")
+            connectSource("sh -c '/usr/bin/stdbuf -oL /usr/bin/timeout 10 /usr/bin/pactl subscribe 2>/dev/null | /usr/bin/grep --line-buffered -m 1 \"sink-input\" || true'")
         }
 
         onNewData: (source, data) => {
             disconnectSource(source)
             actif = false
             if (!root.occupe) root.rafraichir()
-            // Relance immédiate : on se remet à écouter le prochain événement.
-            ecouter()
+            // Relance via Timer : un appel direct provoque une récursion
+            // infinie (RangeError: Maximum call stack size exceeded).
+            relance.start()
         }
+    }
+
+    // Timer de relance : casse la récursion en repassant par la boucle
+    // d'événements de Qt au lieu d'appeler ecouter() directement.
+    Timer {
+        id: relance
+        interval: 1
+        onTriggered: abonnement.ecouter()
     }
 
     // Filet de sécurité : rafraîchissement toutes les 30 s au cas où un
