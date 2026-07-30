@@ -92,9 +92,9 @@ jobs:
 
           # Build
           dpkg-deb --build --root-owner-group "$DESTDIR" \
-              "$PKGNAME_${VERSION}_all.deb"
+              "$(pwd)/${PKGNAME}_${VERSION}_all.deb"
 
-          cp "$BUILD_DIR/${PKGNAME}_${VERSION}_all.deb" .
+          cp "$(pwd)/${PKGNAME}_${VERSION}_all.deb" .
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
