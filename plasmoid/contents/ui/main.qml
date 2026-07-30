@@ -405,11 +405,15 @@ PlasmoidItem {
                         opacity: 0.7
                     }
                     PlasmaComponents.Slider {
+                        id: curseurPosition
                         Layout.fillWidth: true
                         from: 0
                         to: Math.max(1, playerDuration)
-                        value: playerPosition
                         enabled: playerDuration > 0 && joueurActif !== "" && joueurActif !== "AirPlay" && joueurActif !== "Spotify"
+                        // Ne pas mettre à jour la position pendant que
+                        // l'utilisateur glide le curseur : la valeur serait
+                        // écrasée par le polling et le curseur reviendrait.
+                        value: pressed ? value : playerPosition
                         onMoved: {
                             occupe = true
                             shell.lancer("--player " + joueurActif + " seek " + Math.round(value), function(){

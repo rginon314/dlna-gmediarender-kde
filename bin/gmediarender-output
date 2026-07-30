@@ -194,16 +194,17 @@ cmd_rename_all() {
 # Returns the protocol that has an active (non-corked) PulseAudio stream.
 # Prints "AirPlay", "DLNA", "Spotify", or empty.
 cmd_active_player() {
-    # Check which receiver has an active (non-corked) stream.
-    # "Corked: no" = playing, "Corked: yes" = paused.
+    # Check which receiver has an active stream (playing OR paused).
+    # "Corked: no" = playing, "Corked: yes" = paused, no stream = inactive.
+    # We return any protocol with a stream, even if paused, so the applet
+    # can show transport controls to resume playback.
     local out
     out="$(pactl list sink-inputs 2>/dev/null | awk '
-        /^Sink Input #/ { id=substr($3, 2); corked="yes"; app="" }
+        /^Sink Input #/ { id=substr($3, 2); app="" }
         /application.name.*shairport/ { app="AirPlay" }
         /application.name.*gmediarender/ { app="DLNA" }
         /application.name.*librespot/ { app="Spotify" }
-        /^[[:space:]]*Corked:/ { corked=$2 }
-        app != "" && corked == "no" { print app; app=""; corked="yes" }
+        app != "" { print app; app="" }
     ')"
     echo "$out" | head -1
 }
