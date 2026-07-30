@@ -209,6 +209,34 @@ cmd_active_player() {
     echo "$out" | head -1
 }
 
+# --- Track history ---
+
+HISTORY_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/bureau-receivers/history.tsv"
+
+# Log a track to the history file. Called from --player-info when a new
+# track is detected. Format: timestamp<TAB>protocol<TAB>title<TAB>artist<TAB>album
+cmd_history_log() {
+    local proto="$1" title="$2" artist="$3" album="$4"
+    [[ -z "$title" ]] && return 0
+    mkdir -p "$(dirname "$HISTORY_FILE")"
+    # Avoid duplicate consecutive entries.
+    local last
+    last="$(tail -1 "$HISTORY_FILE" 2>/dev/null || echo '')"
+    local last_title="${last#*	}"
+    last_title="${last_title#*	}"  # skip protocol
+    last_title="${last_title%%	*}"  # keep only title
+    [[ "$last_title" == "$title" ]] && return 0
+    local ts
+    ts="$(date '+%Y-%m-%d %H:%M:%S')"
+    printf '%s\t%s\t%s\t%s\t%s\n' "$ts" "$proto" "$title" "${artist:-}" "${album:-}" >> "$HISTORY_FILE"
+}
+
+# Print recent history. Default 20 entries.
+cmd_history() {
+    local n="${1:-20}"
+    [[ -f "$HISTORY_FILE" ]] && tail -"$n" "$HISTORY_FILE" || true
+}
+
 # Find the PulseAudio sink-input ID for a given application name.
 pa_sink_input_id() {
     local app="$1"
@@ -431,6 +459,9 @@ cmd_player_info() {
             printf '%s\t%s\t%s\t%s\t%s\t%s\n' "${status:-}" "${title:-}" "${artist:-}" "${album:-}" "${pos:-0}" "${dur:-0}"
             ;;
     esac
+
+    # Log track to history (deduplicated).
+    [[ -n "${title:-}" ]] && cmd_history_log "$proto" "${title:-}" "${artist:-}" "${album:-}"
 }
 
 cmd_volume() {
@@ -485,6 +516,7 @@ case "${1:-}" in
     --volume)        cmd_volume "${2:-}" "${3:-}" ;;
     --volume-info)   cmd_volume_info "${2:-}" ;;
     --active-player) cmd_active_player ;;
+    --history)       cmd_history "${2:-20}" ;;
     "")             cmd_sinks ;;
     -h|--help)
         sed -n '2,/^$/p' "$0" | sed 's/^# \?//'
