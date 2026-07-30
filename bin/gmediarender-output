@@ -21,13 +21,15 @@ active_sink() {
         /application.name.*=.*gmediarender/ { print id; exit }
     ')"
     if [[ -n "$gmr_id" ]]; then
+        # Sink: line gives a bare number (e.g. "66167"), but Sink # lines
+        # include a # prefix (e.g. "#66167"). Strip it for comparison.
         sink_id="$(pactl list sink-inputs 2>/dev/null | awk -v target="$gmr_id" '
-            /^Sink Input #/ { id=$3; if (found) exit }
-            id==target && /^Sink:/ { print $2; found=1 }
+            /^Sink Input #/ { id=$3 }
+            id==target && /^[\t ]*Sink:/ { print $2; exit }
         ')"
         if [[ -n "$sink_id" ]]; then
             sink_name="$(pactl list sinks 2>/dev/null | awk -v s="$sink_id" '
-                /^Sink #/ { cur=$2 }
+                /^Sink #/ { cur=substr($2, 2) }
                 /^[\t ]*Name:/ && cur==s { print $2 }
             ')"
             [[ -n "$sink_name" ]] && { echo "$sink_name"; return 0; }
