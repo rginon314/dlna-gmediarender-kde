@@ -59,6 +59,7 @@ PlasmoidItem {
                 if (c[2] === "1") {
                     root.peripheriqueActuel = c[1];
                     root.descriptionActive = c[0];
+                    root.dernierEtat = c[1];
                 }
             }
         });
@@ -72,74 +73,32 @@ PlasmoidItem {
         occupe = true;
         shell.lancer('"' + nom + '"', function () {
             occupe = false;
+            dernierEtat = nom;
             rafraichir();
         });
     }
 
-    Component.onCompleted: { rafraichir(); abonnement.ecouter() }
+    Component.onCompleted: rafraichir()
 
-    // Écoute des événements PulseAudio en temps réel : on lance une commande
-    // qui bloque jusqu'au prochain événement sink-input (avec un timeout de
-    // sécurité de 10 s), puis on la relance immédiatement. Le moteur
-    // "executable" de Plasma attend la fin de la commande pour émettre
-    // onNewData, donc on ne peut pas garder pactl subscribe ouvert en continu.
-    Plasma5Support.DataSource {
-        id: abonnement
-        engine: "executable"
-        connectedSources: []
+    // Polling rapide (500 ms) : --data prend ~60 ms, donc on peut se
+    // permettre de comparer l'état précédent et ne rafraîchir le modèle
+    // que s'il a changé. Pas de pactl subscribe : trop fragile (buffering,
+    // récursion, boucles de rétroaction).
+    property string dernierEtat: ""
 
-        property bool actif: false
-
-        function ecouter() {
-            if (actif) return
-            actif = true
-            // Chemins absolus : plasmashell peut avoir un PATH réduit.
-            // stdbuf -oL désactive le buffer de sortie de pactl subscribe,
-            // sinon grep ne reçoit jamais les lignes (buffer de pipe).
-            // timeout 10 sur pactl : si aucun événement, le processus se
-            // termine et on relance. grep -m 1 sort au premier sink-input.
-            connectSource("sh -c '/usr/bin/stdbuf -oL /usr/bin/timeout 10 /usr/bin/pactl subscribe 2>/dev/null | /usr/bin/grep --line-buffered -m 1 \"sink-input\" || true'")
-        }
-
-        onNewData: (source, data) => {
-            disconnectSource(source)
-            actif = false
-            // Ne pas rafraîchir pendant un switch : basculer() s'en charge,
-            // et rafraîchir en parallèle provoque un va-et-vient.
-            if (!root.occupe) {
-                debounce.start()
-            } else {
-                // On est occupé : on relance l'écoute sans rafraîchir.
-                relance.start()
-            }
-        }
-    }
-
-    // Timer de relance : casse la récursion en repassant par la boucle
-    // d'événements de Qt au lieu d'appeler ecouter() directement.
     Timer {
-        id: relance
-        interval: 1
-        onTriggered: abonnement.ecouter()
-    }
-
-    // Debounce : regroupe les événements rapides en un seul rafraîchissement.
-    // Plusieurs événements sink-input peuvent arriver d'affilée (move + change)
-    // et chacun déclencherait un rafraîchissement séparé.
-    Timer {
-        id: debounce
-        interval: 200
+        interval: 500; running: true; repeat: true
         onTriggered: {
-            root.rafraichir()
-            relance.start()
+            if (root.occupe) return
+            // On récupère l'état courant (sink actif) sans rafraîchir le
+            // modèle : on compare juste une chaîne de hachage.
+            shell.lancer("--current", function (sortie) {
+                if (sortie !== root.dernierEtat) {
+                    root.dernierEtat = sortie
+                    root.rafraichir()
+                }
+            })
         }
-    }
-
-    // Filet de sécurité : rafraîchissement toutes les 30 s au cas où un
-    // événement serait manqué (pactl subscribe redémarre, etc.).
-    Timer {
-        interval: 30000; running: true; repeat: true
-        onTriggered: if (!root.occupe) root.rafraichir()
     }
 
     readonly property string icone: "org.gmediarender.kde"
