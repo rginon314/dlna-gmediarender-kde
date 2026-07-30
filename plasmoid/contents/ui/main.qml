@@ -429,20 +429,23 @@ PlasmoidItem {
                     }
                 }
 
-                // Transport buttons
+                // Transport buttons.
+                // AirPlay classic mode doesn't support remote control —
+                // transport is controlled from the source device.
+                // Spotify (librespot) also doesn't expose MPRIS.
+                // Only show transport for protocols that support it.
                 RowLayout {
                     Layout.fillWidth: true
                     Layout.alignment: Qt.AlignHCenter
                     spacing: Kirigami.Units.largeSpacing
+                    visible: joueurActif !== "" && joueurActif !== "DLNA" && joueurActif !== "AirPlay" && joueurActif !== "Spotify"
 
                     PlasmaComponents.ToolButton {
                         icon.name: "media-skip-backward"
-                        enabled: joueurActif !== "" && joueurActif !== "DLNA" && playerStatus !== "Inactive"
                         onClicked: shell.lancer("--player " + joueurActif + " prev", function(){ root.rafraichirPlayer() })
                     }
                     PlasmaComponents.ToolButton {
                         icon.name: playerStatus === "Playing" ? "media-playback-pause" : "media-playback-start"
-                        enabled: joueurActif !== "" && joueurActif !== "DLNA" && playerStatus !== "Inactive"
                         onClicked: {
                             var cmd = playerStatus === "Playing" ? "pause" : "play";
                             shell.lancer("--player " + joueurActif + " " + cmd, function(){ root.rafraichirPlayer() })
@@ -450,9 +453,18 @@ PlasmoidItem {
                     }
                     PlasmaComponents.ToolButton {
                         icon.name: "media-skip-forward"
-                        enabled: joueurActif !== "" && joueurActif !== "DLNA" && playerStatus !== "Inactive"
                         onClicked: shell.lancer("--player " + joueurActif + " next", function(){ root.rafraichirPlayer() })
                     }
+                }
+
+                // Info message for protocols without transport control.
+                PlasmaComponents.Label {
+                    Layout.fillWidth: true
+                    text: i18n("Transport controlled from the source device")
+                    font: Kirigami.Theme.smallFont
+                    opacity: 0.5
+                    horizontalAlignment: Text.AlignHCenter
+                    visible: joueurActif === "DLNA" || joueurActif === "AirPlay" || joueurActif === "Spotify"
                 }
 
                 // Volume slider
