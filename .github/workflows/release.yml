@@ -130,11 +130,12 @@ jobs:
               --transform "s,^,${PKGNAME}-${VERSION}/," \
               bin/ systemd/ plasmoid/ packaging/ LICENSE README.md
 
-          # Build
+          # Build (--nodeps : on Ubuntu runner, Fedora deps aren't installable)
           rpmbuild -ba packaging/dlna-gmediarender-kde.spec \
               --define "_topdir /tmp/rpmbuild" \
               --define "version $VERSION" \
-              --define "release 1" || true
+              --define "release 1" \
+              --nodeps || true
 
           # Copy the built RPM (noarch)
           cp /tmp/rpmbuild/RPMS/noarch/${PKGNAME}-${VERSION}-1.*.noarch.rpm . \
@@ -188,7 +189,7 @@ jobs:
           # Build in a non-root user (makepkg refuses root).
           useradd -m builder || true
           chown -R builder:builder .
-          su builder -c "makepkg --noconfirm -f" || true
+          su builder -c "makepkg --noconfirm --skipinteg -f" || true
 
           # Copy the built package.
           cp *.pkg.tar.zst "$GITHUB_WORKSPACE/" 2>/dev/null || true

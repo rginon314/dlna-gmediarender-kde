@@ -5,10 +5,10 @@ Summary:        KDE Plasma 6 applet to receive DLNA audio and switch output devi
 
 License:        MIT
 URL:            https://github.com/rginon314/dlna-gmediarender-kde
-Source0:        %{url}/archive/v%{version}/%{name}-%{version}.tar.gz
+Source0:        %{name}-%{version}.tar.gz
 
-BuildRequires:  systemd-rpm-macros
-Requires:       gmediarender
+# No build dependencies — this is a noarch package with no compilation.
+#Requires:       gmediarender
 Requires:       gstreamer1-plugins-base
 Requires:       gstreamer1-plugins-good
 Requires:       gstreamer1-plugins-bad-free

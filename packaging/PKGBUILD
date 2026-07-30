@@ -14,6 +14,8 @@ depends=('gmediarender' 'gst-plugins-good' 'gst-plugins-base'
          'gst-plugins-bad' 'gst-plugins-ugly' 'gst-libav'
          'libpulse' 'plasma-workspace')
 makedepends=()
+# Dependencies are resolved at install time on the user's system,
+# not at build time — this is a noarch package with no compilation.
 optdepends=()
 source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/v${pkgver}/${pkgname}-${pkgver}.tar.gz")
 sha256sums=('SKIP')
