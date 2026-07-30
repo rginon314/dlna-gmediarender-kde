@@ -99,6 +99,8 @@ cmd_switch() {
         /^Sink Input #/ { id=$3 }
         /application.name.*=.*gmediarender/ { print id; exit }
     ')"
+    # Strip the # prefix : pactl move-sink-input expects a bare number.
+    gmr_id="${gmr_id#\#}"
     if [[ -n "$gmr_id" ]] && pactl move-sink-input "$gmr_id" "$target" 2>/dev/null; then
         moved=1
     fi
