@@ -78,8 +78,33 @@ PlasmoidItem {
 
     Component.onCompleted: rafraichir()
 
+    // Écoute des événements PulseAudio en temps réel : toute modification
+    // d'un sink-input (création, déplacement, suppression) déclenche un
+    // rafraîchissement immédiat. Pas de polling.
+    Plasma5Support.DataSource {
+        id: abonnement
+        engine: "executable"
+        connectedSources: []
+
+        Component.onCompleted: {
+            // pactl subscribe reste ouvert et émet une ligne par événement.
+            // On ne le déconnecte jamais : c'est un flux continu.
+            connectSource("sh -c 'pactl subscribe 2>/dev/null'")
+        }
+
+        onNewData: (source, data) => {
+            // Seuls les événements sur sink-input concernent le routing.
+            const ligne = ("" + data["stdout"]).trim();
+            if (ligne.indexOf("sink-input") >= 0) {
+                if (!root.occupe) root.rafraichir();
+            }
+        }
+    }
+
+    // Filet de sécurité : rafraîchissement toutes les 30 s au cas où un
+    // événement serait manqué (pactl subscribe redémarre, etc.).
     Timer {
-        interval: 5000; running: true; repeat: true
+        interval: 30000; running: true; repeat: true
         onTriggered: if (!root.occupe) root.rafraichir()
     }
 
