@@ -108,6 +108,24 @@ rm -f ~/.config/systemd/user/gmediarender.service
 systemctl --user daemon-reload
 ```
 
+## Releases
+
+Push a tag to trigger a GitHub Actions release:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The workflow builds two artifacts and attaches them to a GitHub Release:
+
+| Artifact | Description |
+|---|---|
+| `dlna-gmediarender-0.1.0.plasmoid` | Plasma package — install via *Add Widgets → Install from local file* |
+| `dlna-gmediarender-0.1.0.tar.gz` | Full source tarball (includes `install.sh`) |
+
+Tags containing a hyphen (e.g. `v0.1.0-rc1`) are published as pre-releases.
+
 ## License
 
 MIT
