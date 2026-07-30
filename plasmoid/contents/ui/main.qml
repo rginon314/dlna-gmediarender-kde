@@ -146,33 +146,53 @@ PlasmoidItem {
 
     function rafraichirPlayer() {
         if (occupe) return;
-        var proto = "";
+        // Check each active service for player info.
+        // Pick the first one that has actual content (not Inactive/Stopped with no track).
+        var protos = [];
         for (var i = 0; i < modeleServices.count; i++) {
             var s = modeleServices.get(i);
-            if (s.actif && (s.nom === "AirPlay" || s.nom === "Spotify")) {
-                proto = s.nom;
-                break;
-            }
+            if (s.actif) protos.push(s.nom);
         }
-        if (proto === "") {
+        if (protos.length === 0) {
             joueurActif = "";
             return;
         }
-        joueurActif = proto;
-        shell.lancer("--player-info " + proto, function (sortie) {
-            var c = sortie.split("\t");
-            if (c.length >= 6) {
-                playerStatus = c[0];
-                playerTitle = c[1];
-                playerArtist = c[2];
-                playerAlbum = c[3];
-                playerPosition = parseFloat(c[4]) || 0;
-                playerDuration = parseFloat(c[5]) || 0;
+        // Query each protocol, pick the first with a non-empty title or non-Inactive status.
+        var found = false;
+        function tryProto(idx) {
+            if (idx >= protos.length || found) {
+                if (!found) joueurActif = "";
+                return;
             }
-        });
-        shell.lancer("--volume-info " + proto, function (sortie) {
-            playerVolume = parseInt(sortie) || 0;
-        });
+            var proto = protos[idx];
+            shell.lancer("--player-info " + proto, function (sortie) {
+                if (found) return;
+                var c = sortie.split("\t");
+                if (c.length >= 6) {
+                    var status = c[0];
+                    var title = c[1];
+                    // Active if status is not Inactive/Stopped, or if there's a title.
+                    if (status !== "Inactive" && status !== "Stopped" || title !== "") {
+                        found = true;
+                        joueurActif = proto;
+                        playerStatus = status;
+                        playerTitle = c[1];
+                        playerArtist = c[2];
+                        playerAlbum = c[3];
+                        playerPosition = parseFloat(c[4]) || 0;
+                        playerDuration = parseFloat(c[5]) || 0;
+                        shell.lancer("--volume-info " + proto, function (vol) {
+                            playerVolume = parseInt(vol) || 0;
+                        });
+                    } else {
+                        tryProto(idx + 1);
+                    }
+                } else {
+                    tryProto(idx + 1);
+                }
+            });
+        }
+        tryProto(0);
     }
 
     Component.onCompleted: rafraichir()
@@ -425,12 +445,12 @@ PlasmoidItem {
 
                     PlasmaComponents.ToolButton {
                         icon.name: "media-skip-backward"
-                        enabled: joueurActif !== "" && joueurActif !== "DLNA"
-                        onClicked: shell.lancer("--player " + joueurActif + " prev", function(){})
+                        enabled: joueurActif !== "" && joueurActif !== "DLNA" && playerStatus !== "Inactive"
+                        onClicked: shell.lancer("--player " + joueurActif + " prev", function(){ root.rafraichirPlayer() })
                     }
                     PlasmaComponents.ToolButton {
                         icon.name: playerStatus === "Playing" ? "media-playback-pause" : "media-playback-start"
-                        enabled: joueurActif !== "" && joueurActif !== "DLNA"
+                        enabled: joueurActif !== "" && joueurActif !== "DLNA" && playerStatus !== "Inactive"
                         onClicked: {
                             var cmd = playerStatus === "Playing" ? "pause" : "play";
                             shell.lancer("--player " + joueurActif + " " + cmd, function(){ root.rafraichirPlayer() })
@@ -438,8 +458,8 @@ PlasmoidItem {
                     }
                     PlasmaComponents.ToolButton {
                         icon.name: "media-skip-forward"
-                        enabled: joueurActif !== "" && joueurActif !== "DLNA"
-                        onClicked: shell.lancer("--player " + joueurActif + " next", function(){})
+                        enabled: joueurActif !== "" && joueurActif !== "DLNA" && playerStatus !== "Inactive"
+                        onClicked: shell.lancer("--player " + joueurActif + " next", function(){ root.rafraichirPlayer() })
                     }
                 }
 

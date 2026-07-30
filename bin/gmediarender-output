@@ -235,26 +235,26 @@ cmd_player_info() {
             local bus="org.gnome.ShairportSync"
             local rc="$bus.RemoteControl"
             local path="/org/gnome/ShairportSync"
-            local status title artist album pos dur
+            local status title artist album pos dur available
+            available="$(busctl --user get-property "$bus" "$path" "$rc" Available 2>/dev/null | awk '{print $2}' || echo 'false')"
             status="$(busctl --user get-property "$bus" "$path" "$rc" PlayerState 2>/dev/null | sed 's/^s //' | tr -d '"')"
-            # Metadata is a{sv} — format: a{sv} N "key" type "value" ...
-            # Extract xesam:title, xesam:artist, xesam:album.
+            # Metadata is a{sv} — extract xesam:title, xesam:artist, xesam:album.
             local meta
             meta="$(busctl --user get-property "$bus" "$path" "$rc" Metadata 2>/dev/null)"
-            # xesam:title s "value"
             title="$(echo "$meta" | grep -oP '"xesam:title" s "\K[^"]*' || echo '')"
-            # xesam:artist as 1 "value"
             artist="$(echo "$meta" | grep -oP '"xesam:artist" as \d+ "\K[^"]*' || echo '')"
             album="$(echo "$meta" | grep -oP '"xesam:album" s "\K[^"]*' || echo '')"
-            # Position: FramePosition is a string like "12345" (samples).
-            # Convert to seconds (44100 Hz default).
-            pos="$(busctl --user get-property "$bus" "$path" "$rc" FramePosition 2>/dev/null | sed 's/^s //' | tr -d '"' || echo '0')"
-            if [[ "$pos" =~ ^[0-9]+$ ]]; then
-                pos=$(awk -v p="$pos" 'BEGIN{printf "%.1f", p/44100}')
+            # ProgressString: "start/current/end" in samples (44100 Hz).
+            local prog
+            prog="$(busctl --user get-property "$bus" "$path" "$rc" ProgressString 2>/dev/null | sed 's/^s //' | tr -d '"')"
+            if [[ "$prog" =~ ^([0-9]+)/([0-9]+)/([0-9]+)$ ]]; then
+                pos=$(awk -v p="${BASH_REMATCH[2]}" 'BEGIN{printf "%.1f", p/44100}')
+                dur=$(awk -v d="${BASH_REMATCH[3]}" 'BEGIN{printf "%.1f", d/44100}')
             else
-                pos="0"
+                pos="0"; dur="0"
             fi
-            dur="0"
+            # If not available, clear status to indicate no active session.
+            [[ "$available" == "false" ]] && status="Inactive"
             printf '%s\t%s\t%s\t%s\t%s\t%s\n' "${status:-}" "${title:-}" "${artist:-}" "${album:-}" "${pos:-0}" "${dur:-0}"
             ;;
         Spotify)
