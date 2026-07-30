@@ -187,7 +187,7 @@ jobs:
           # Build in a non-root user (makepkg refuses root).
           useradd -m builder || true
           chown -R builder:builder .
-          su builder -c "makepkg --noconfirm --skipinteg -f" || true
+          su builder -c "makepkg --noconfirm --skipinteg --nodeps -f" || true
 
           # Copy the built package.
           cp *.pkg.tar.zst "$GITHUB_WORKSPACE/" 2>/dev/null || true

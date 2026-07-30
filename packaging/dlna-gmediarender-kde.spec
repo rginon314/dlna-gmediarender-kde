@@ -1,5 +1,5 @@
 Name:           dlna-gmediarender-kde
-Version:        0.1.0
+Version:        %{version}
 Release:        1%{?dist}
 Summary:        KDE Plasma 6 applet to receive DLNA audio and switch output device live
 
