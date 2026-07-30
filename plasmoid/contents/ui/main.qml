@@ -52,6 +52,7 @@ PlasmoidItem {
     ListModel { id: modeleNoms }  // protocol <TAB> name
 
     function rafraichir() {
+        if (!enVie) return;
         // Services (DLNA, AirPlay, Spotify)
         shell.lancer("--services", function (sortie) {
             modeleServices.clear();
@@ -144,18 +145,22 @@ PlasmoidItem {
         });
     }
 
+    property bool enVie: true
+
     function rafraichirPlayer() {
-        if (occupe) return;
-        // Ask the CLI which protocol has an active (non-corked) stream.
+        if (occupe || !enVie) return;
+        // Ask the CLI which protocol has an active stream.
         shell.lancer("--active-player", function (proto) {
+            if (!enVie) return;
             proto = proto.trim();
             if (proto === "") {
                 joueurActif = "";
                 return;
             }
-            // Query the active protocol for full player info.
             joueurActif = proto;
+            // Query player info — this also logs track history.
             shell.lancer("--player-info " + proto, function (sortie) {
+                if (!enVie) return;
                 var c = sortie.split("\t");
                 if (c.length >= 6) {
                     playerStatus = c[0];
@@ -166,20 +171,24 @@ PlasmoidItem {
                     playerDuration = parseFloat(c[5]) || 0;
                 }
             });
+            // Query volume separately.
             shell.lancer("--volume-info " + proto, function (vol) {
+                if (!enVie) return;
                 playerVolume = parseInt(vol) || 0;
             });
         });
     }
 
     Component.onCompleted: rafraichir()
+    Component.onDestruction: enVie = false
 
     // Polling : vérifie si le sink actif a changé (switch externe).
     Timer {
         interval: 500; running: true; repeat: true
         onTriggered: {
-            if (root.occupe) return
+            if (root.occupe || !root.enVie) return
             shell.lancer("--current", function (sortie) {
+                if (!root.enVie) return
                 if (sortie !== root.dernierEtat) {
                     root.dernierEtat = sortie
                     root.rafraichir()
@@ -192,8 +201,9 @@ PlasmoidItem {
     Timer {
         interval: 3000; running: true; repeat: true
         onTriggered: {
-            if (!root.occupe) {
+            if (!root.occupe && root.enVie) {
                 shell.lancer("--services", function (sortie) {
+                    if (!root.enVie) return
                     modeleServices.clear();
                     for (const ligne of sortie.split("\n")) {
                         if (!ligne) continue;
@@ -211,7 +221,7 @@ PlasmoidItem {
     // Polling du player : met à jour les infos de lecture toutes les 1 s.
     Timer {
         interval: 1000; running: true; repeat: true
-        onTriggered: root.rafraichirPlayer()
+        onTriggered: if (root.enVie) root.rafraichirPlayer()
     }
 
     // Délai avant rafraîchissement après une commande de transport :
