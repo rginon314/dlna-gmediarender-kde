@@ -314,13 +314,59 @@ cmd_player_info() {
             artist="$(echo "$meta" | grep -oP '"xesam:artist" as \d+ "\K[^"]*' || echo '')"
             album="$(echo "$meta" | grep -oP '"xesam:album" s "\K[^"]*' || echo '')"
             # ProgressString: "start/current/end" in samples (44100 Hz).
+            # In classic AirPlay, ProgressString doesn't update in real time —
+            # it only changes when a new track starts. So we compute position
+            # from wall-clock elapsed time since the track started.
             local prog
             prog="$(busctl --user get-property "$bus" "$path" "$rc" ProgressString 2>/dev/null | sed 's/^s //' | tr -d '"')"
             if [[ "$prog" =~ ^([0-9]+)/([0-9]+)/([0-9]+)$ ]]; then
-                pos=$(awk -v p="${BASH_REMATCH[2]}" 'BEGIN{printf "%.1f", p/44100}')
-                dur=$(awk -v d="${BASH_REMATCH[3]}" 'BEGIN{printf "%.1f", d/44100}')
+                dur=$(awk -v s="${BASH_REMATCH[1]}" -v e="${BASH_REMATCH[3]}" 'BEGIN{printf "%d", (e-s)/44100}')
             else
-                pos="0"; dur="0"
+                dur="0"
+            fi
+            # Compute position from wall-clock time.
+            # State file format: line 1 = title, line 2 = "playing:<epoch>" or "paused:<pos>"
+            local state_file="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/airplay-position"
+            local prev_title="" prev_state="" prev_mode="" prev_val=""
+            if [[ -f "$state_file" ]]; then
+                prev_title="$(head -1 "$state_file" 2>/dev/null || echo '')"
+                prev_state="$(tail -1 "$state_file" 2>/dev/null || echo '')"
+                prev_mode="${prev_state%%:*}"
+                prev_val="${prev_state#*:}"
+            fi
+            local now
+            now="$(date +%s)"
+            if [[ "$title" != "$prev_title" ]]; then
+                # New track — start counting from zero.
+                echo "$title" > "$state_file"
+                echo "playing:$now" >> "$state_file"
+                pos="0"
+            elif [[ "$status" == "Playing" ]]; then
+                if [[ "$prev_mode" == "playing" ]]; then
+                    # Still playing — elapsed since start.
+                    pos=$((now - prev_val))
+                elif [[ "$prev_mode" == "paused" ]]; then
+                    # Resumed from pause — adjust start time.
+                    local start_adj=$((now - prev_val))
+                    echo "$title" > "$state_file"
+                    echo "playing:$start_adj" >> "$state_file"
+                    pos="$prev_val"
+                fi
+                # Clamp to duration.
+                if (( dur > 0 && pos > dur )); then
+                    pos="$dur"
+                fi
+            else
+                # Paused — store current position.
+                pos="${prev_val:-0}"
+                if [[ "$prev_mode" == "playing" ]]; then
+                    pos=$((now - prev_val))
+                    if (( dur > 0 && pos > dur )); then
+                        pos="$dur"
+                    fi
+                fi
+                echo "$title" > "$state_file"
+                echo "paused:$pos" >> "$state_file"
             fi
             # If stopped, show as Inactive so the applet skips it.
             [[ "$status" == "Stopped" || "$status" == "N/A" ]] && status="Inactive"

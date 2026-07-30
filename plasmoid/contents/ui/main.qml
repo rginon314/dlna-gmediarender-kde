@@ -434,26 +434,14 @@ PlasmoidItem {
                 }
 
                 // Transport buttons.
-                // AirPlay classic mode doesn't support remote control —
-                // transport is controlled from the source device.
-                // Spotify (librespot) also doesn't expose MPRIS.
-                // Only show transport for protocols that support it.
+                // DLNA: play/pause only (next/prev not supported by gmediarender).
+                // AirPlay/Spotify: transport controlled from the source device.
                 RowLayout {
                     Layout.fillWidth: true
                     Layout.alignment: Qt.AlignHCenter
                     spacing: Kirigami.Units.largeSpacing
-                    visible: joueurActif !== "" && joueurActif !== "AirPlay" && joueurActif !== "Spotify"
+                    visible: joueurActif === "DLNA"
 
-                    PlasmaComponents.ToolButton {
-                        icon.name: "media-skip-backward"
-                        onClicked: {
-                            occupe = true
-                            shell.lancer("--player " + joueurActif + " prev", function(){
-                                occupe = false
-                                delaiRafraichir.start()
-                            })
-                        }
-                    }
                     PlasmaComponents.ToolButton {
                         icon.name: playerStatus === "Playing" ? "media-playback-pause" : "media-playback-start"
                         onClicked: {
@@ -465,14 +453,7 @@ PlasmoidItem {
                             })
                         }
                     }
-                    PlasmaComponents.ToolButton {
-                        icon.name: "media-skip-forward"
-                        onClicked: {
-                            occupe = true
-                            shell.lancer("--player " + joueurActif + " next", function(){
-                                occupe = false
-                                delaiRafraichir.start()
-                            })
+                }
                         }
                     }
                 }
