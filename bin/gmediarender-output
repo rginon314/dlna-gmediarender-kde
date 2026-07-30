@@ -11,6 +11,10 @@
 #   bureau-receivers --names            # TSV: protocol<TAB>current name
 #   bureau-receivers --rename <proto> <name>  # rename a receiver
 #   bureau-receivers --rename-all <name>      # rename all receivers at once
+#   bureau-receivers --player <proto> <cmd>   # play/pause/stop/next/prev
+#   bureau-receivers --player-info <proto>    # TSV: status<TAB>title<TAB>artist<TAB>album<TAB>position<TAB>duration
+#   bureau-receivers --volume <proto> <val>   # set volume 0-100
+#   bureau-receivers --volume-info <proto>    # print current volume 0-100
 #
 set -euo pipefail
 
@@ -185,6 +189,121 @@ cmd_rename_all() {
     systemctl --user restart gmediarender.service shairport-sync.service librespot.service 2>/dev/null || true
 }
 
+# --- Player controls ---
+
+# Find the PulseAudio sink-input ID for a given application name.
+pa_sink_input_id() {
+    local app="$1"
+    pactl list sink-inputs 2>/dev/null | awk -v app="$app" '
+        /^Sink Input #/ { id=substr($3, 2) }
+        tolower($0) ~ tolower(app) { print id; exit }
+    '
+}
+
+cmd_player() {
+    local proto="$1" cmd="$2"
+    case "$proto" in
+        AirPlay)
+            local bus="org.gnome.ShairportSync"
+            local rc="$bus.RemoteControl"
+            local path="/org/gnome/ShairportSync"
+            case "$cmd" in
+                play)     busctl --user call "$bus" "$path" "$rc" Play ;;
+                pause)    busctl --user call "$bus" "$path" "$rc" Pause ;;
+                stop)     busctl --user call "$bus" "$path" "$rc" Stop ;;
+                playpause) busctl --user call "$bus" "$path" "$rc" PlayPause ;;
+                next)     busctl --user call "$bus" "$path" "$rc" Next ;;
+                prev)     busctl --user call "$bus" "$path" "$rc" Previous ;;
+            esac
+            ;;
+        Spotify)
+            case "$cmd" in
+                play)     playerctl play 2>/dev/null ;;
+                pause)    playerctl pause 2>/dev/null ;;
+                stop)     playerctl stop 2>/dev/null ;;
+                playpause) playerctl play-pause 2>/dev/null ;;
+                next)     playerctl next 2>/dev/null ;;
+                prev)     playerctl previous 2>/dev/null ;;
+            esac
+            ;;
+        DLNA)
+            # DLNA transport is controlled by the source (Synology), not the receiver.
+            echo "DLNA transport is controlled by the source device" >&2
+            ;;
+    esac
+}
+
+cmd_player_info() {
+    local proto="$1"
+    case "$proto" in
+        AirPlay)
+            local bus="org.gnome.ShairportSync"
+            local rc="$bus.RemoteControl"
+            local path="/org/gnome/ShairportSync"
+            local status title artist album pos dur
+            status="$(busctl --user get-property "$bus" "$path" "$rc" PlayerState 2>/dev/null | sed 's/^s //' | tr -d '"')"
+            # Metadata is an a{sv} dict — extract title/artist/album from it.
+            local meta
+            meta="$(busctl --user get-property "$bus" "$path" "$rc" Metadata 2>/dev/null)"
+            title="$(echo "$meta" | grep -i 'title' | head -1 | sed 's/.*"//' | tr -d '"' || echo '')"
+            artist="$(echo "$meta" | grep -i 'artist' | head -1 | sed 's/.*"//' | tr -d '"' || echo '')"
+            album="$(echo "$meta" | grep -i 'album' | head -1 | sed 's/.*"//' | tr -d '"' || echo '')"
+            pos="$(busctl --user get-property "$bus" "$path" "$bus" FramePosition 2>/dev/null | awk '{print $2}' || echo '0')"
+            dur="$(busctl --user get-property "$bus" "$path" "$bus" ItemDuration 2>/dev/null | awk '{print $2}' || echo '0')"
+            printf '%s\t%s\t%s\t%s\t%s\t%s\n' "${status:-}" "${title:-}" "${artist:-}" "${album:-}" "${pos:-0}" "${dur:-0}"
+            ;;
+        Spotify)
+            local status title artist album pos dur
+            status="$(playerctl status 2>/dev/null || echo '')"
+            title="$(playerctl metadata title 2>/dev/null || echo '')"
+            artist="$(playerctl metadata artist 2>/dev/null || echo '')"
+            album="$(playerctl metadata album 2>/dev/null || echo '')"
+            pos="$(playerctl position 2>/dev/null || echo '0')"
+            dur="$(playerctl metadata mpris:length 2>/dev/null | awk '{printf "%.0f", $1/1000000}' || echo '0')"
+            printf '%s\t%s\t%s\t%s\t%s\t%s\n' "${status:-}" "${title:-}" "${artist:-}" "${album:-}" "${pos:-0}" "${dur:-0}"
+            ;;
+        DLNA)
+            printf 'Playing\t\t\t\t0\t0\n'
+            ;;
+    esac
+}
+
+cmd_volume() {
+    local proto="$1" val="$2"
+    local id
+    case "$proto" in
+        DLNA)   id="$(pa_sink_input_id gmediarender)" ;;
+        AirPlay) id="$(pa_sink_input_id shairport)" ;;
+        Spotify) id="$(pa_sink_input_id librespot)" ;;
+    esac
+    if [[ -n "$id" ]]; then
+        local pct=$((val))
+        pactl set-sink-input-volume "$id" "${pct}%" 2>/dev/null
+    fi
+}
+
+cmd_volume_info() {
+    local proto="$1"
+    local id
+    case "$proto" in
+        DLNA)   id="$(pa_sink_input_id gmediarender)" ;;
+        AirPlay) id="$(pa_sink_input_id shairport)" ;;
+        Spotify) id="$(pa_sink_input_id librespot)" ;;
+    esac
+    if [[ -n "$id" ]]; then
+        pactl list sink-inputs 2>/dev/null | awk -v target="$id" '
+            /^Sink Input #/ { id=substr($3, 2) }
+            id==target && /Volume/ {
+                for (i=1; i<=NF; i++) {
+                    if ($i ~ /%/) { gsub(/%/,"",$i); print $i; exit }
+                }
+            }
+        '
+    else
+        echo "0"
+    fi
+}
+
 case "${1:-}" in
     --services)    cmd_services ;;
     --sinks)        cmd_sinks ;;
@@ -196,6 +315,10 @@ case "${1:-}" in
     --names)         cmd_names ;;
     --rename)        cmd_rename "${2:-}" "${3:-}" ;;
     --rename-all)    cmd_rename_all "${2:-}" ;;
+    --player)        cmd_player "${2:-}" "${3:-}" ;;
+    --player-info)   cmd_player_info "${2:-}" ;;
+    --volume)        cmd_volume "${2:-}" "${3:-}" ;;
+    --volume-info)   cmd_volume_info "${2:-}" ;;
     "")             cmd_sinks ;;
     -h|--help)
         sed -n '2,/^$/p' "$0" | sed 's/^# \?//'
