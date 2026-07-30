@@ -26,10 +26,19 @@ receive audio pushed from a Synology NAS (Audio Station / DS audio), and lets yo
 |---|---|
 | KDE Plasma ≥ 6 | the applet uses Plasma 6 QML imports |
 | PipeWire or PulseAudio | audio routing via `pactl` |
-| `gmediarender` (AUR: `gmrender-resurrect-git`) | the DLNA renderer itself |
+| `gmediarender` | the DLNA renderer itself |
 | GStreamer plugins | decoding FLAC/MP3/AAC from the Synology |
+| systemd | user service for the renderer |
 
-Tested on Manjaro KDE + PipeWire.
+Tested on Manjaro KDE + PipeWire. The installer supports:
+
+| Distribution | gmediarender source |
+|---|---|
+| Arch / Manjaro / EndeavourOS | AUR (`gmrender-resurrect-git`) |
+| Debian / Ubuntu / Mint / KDE Neon | `apt install gmediarender` |
+| Fedora / Nobara | RPM Fusion (`dnf install gmediarender`) |
+| openSUSE | Packman (`zypper install gmediarender`) |
+| Gentoo | `emerge gmrender-resurrect` |
 
 ## Installation
 

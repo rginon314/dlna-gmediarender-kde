@@ -5,6 +5,9 @@
 # Installs the DLNA renderer (gmediarender), the CLI output switcher,
 # the user systemd service, and the Plasma 6 applet.
 #
+# Supports: Arch/Manjaro, Debian/Ubuntu, Fedora, openSUSE, Gentoo.
+# Requires: KDE Plasma ≥ 6, PipeWire or PulseAudio, systemd.
+#
 set -euo pipefail
 
 PROJET="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -23,35 +26,104 @@ confirmer() {
 }
 
 # ---------------------------------------------------------------------------
-# 1. gmediarender (AUR) + GStreamer codecs
+# Detect the distribution
 # ---------------------------------------------------------------------------
-echo "==> 1/5  gmediarender + GStreamer"
-
-if ! command -v gmediarender >/dev/null 2>&1; then
-    if command -v pacman >/dev/null 2>&1; then
-        jaune "  gmediarender absent — installation depuis l'AUR"
-        if ! command -v makepkg >/dev/null 2>&1; then
-            rouge "  base-devel requis. Installe-le : sudo pacman -S base-devel"
-            exit 1
-        fi
-        sudo pacman -S --needed --noconfirm libupnp git 2>/dev/null || true
-        TMP="$(mktemp -d)"
-        git clone https://aur.archlinux.org/gmrender-resurrect-git.git "$TMP/gmr"
-        ( cd "$TMP/gmr" && makepkg -si --noconfirm )
-        rm -rf "$TMP"
+detect_distro() {
+    if [[ -f /etc/os-release ]]; then
+        . /etc/os-release
+        case "${ID:-}" in
+            arch|manjaro|garuda|artix|endeavouros|cachyos) echo "arch" ;;
+            debian|ubuntu|linuxmint|pop|kde_neon|raspbian) echo "debian" ;;
+            fedora|nobara|silverblue|kinoite)               echo "fedora" ;;
+            opensuse*|suse|sles)                             echo "opensuse" ;;
+            gentoo|funtoo)                                   echo "gentoo" ;;
+            *) echo "unknown" ;;
+        esac
     else
-        rouge "  pacman introuvable — installe gmediarender manuellement (AUR ou paquet de ta distro)"
-        exit 1
+        echo "unknown"
     fi
-fi
+}
 
-# GStreamer codec plugins (FLAC/MP3/AAC).
-if command -v pacman >/dev/null 2>&1; then
-    sudo pacman -S --needed --noconfirm \
-        gst-plugins-good gst-plugins-base gst-plugins-bad gst-plugins-ugly gst-libav \
-        2>/dev/null || true
-fi
+DISTRO="$(detect_distro)"
 
+# ---------------------------------------------------------------------------
+# 1. gmediarender + GStreamer codecs
+# ---------------------------------------------------------------------------
+echo "==> 1/5  gmediarender + GStreamer  (distro: $DISTRO)"
+
+install_gmediarender() {
+    case "$DISTRO" in
+        arch)
+            if ! command -v gmediarender >/dev/null 2>&1; then
+                jaune "  gmediarender absent — installation depuis l'AUR"
+                if ! command -v makepkg >/dev/null 2>&1; then
+                    rouge "  base-devel requis : sudo pacman -S base-devel"
+                    exit 1
+                fi
+                sudo pacman -S --needed --noconfirm libupnp git 2>/dev/null || true
+                TMP="$(mktemp -d)"
+                git clone https://aur.archlinux.org/gmrender-resurrect-git.git "$TMP/gmr"
+                ( cd "$TMP/gmr" && makepkg -si --noconfirm )
+                rm -rf "$TMP"
+            fi
+            sudo pacman -S --needed --noconfirm \
+                gst-plugins-good gst-plugins-base gst-plugins-bad gst-plugins-ugly gst-libav \
+                2>/dev/null || true
+            ;;
+        debian)
+            sudo apt-get update -qq
+            sudo apt-get install -y gmediarender \
+                gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+                gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly \
+                gstreamer1.0-libav 2>/dev/null || true
+            ;;
+        fedora)
+            # gmediarender is in RPM Fusion.
+            if ! command -v gmediarender >/dev/null 2>&1; then
+                jaune "  gmediarender absent — activation de RPM Fusion"
+                sudo dnf install -y https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm 2>/dev/null || true
+                sudo dnf install -y https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$(rpm -E %fedora).noarch.rpm 2>/dev/null || true
+            fi
+            sudo dnf install -y gmediarender \
+                gstreamer1-plugins-base gstreamer1-plugins-good \
+                gstreamer1-plugins-bad-free gstreamer1-plugins-ugly-free \
+                gstreamer1-libav 2>/dev/null || true
+            ;;
+        opensuse)
+            # gmediarender is in the Packman repo.
+            if ! command -v gmediarender >/dev/null 2>&1; then
+                jaune "  gmediarender absent — ajout du dépôt Packman"
+                sudo zypper ar -f https://ftp.gwdg.de/pub/linux/misc/packman/suse/openSUSE_Tumbleweed/ packman 2>/dev/null || true
+            fi
+            sudo zypper install -y gmediarender \
+                gstreamer-plugins-base gstreamer-plugins-good \
+                gstreamer-plugins-bad gstreamer-plugins-ugly \
+                gstreamer-plugins-libav 2>/dev/null || true
+            ;;
+        gentoo)
+            sudo emerge -a media-sound/gmrender-resurrect \
+                media-libs/gst-plugins-base media-libs/gst-plugins-good \
+                media-libs/gst-plugins-bad media-libs/gst-plugins-ugly \
+                media-plugins/gst-plugins-libav 2>/dev/null || true
+            ;;
+        *)
+            rouge "  Distribution non reconnue ($DISTRO)."
+            rouge "  Installe manuellement gmediarender et les plugins GStreamer, puis relance ce script."
+            rouge "  Paquets connus :"
+            rouge "    Arch/Manjaro  : gmrender-resurrect-git (AUR)"
+            rouge "    Debian/Ubuntu : apt install gmediarender"
+            rouge "    Fedora        : dnf install gmediarender (RPM Fusion)"
+            rouge "    openSUSE      : zypper install gmediarender (Packman)"
+            rouge "    Gentoo        : emerge gmrender-resurrect"
+            if ! command -v gmediarender >/dev/null 2>&1; then
+                exit 1
+            fi
+            jaune "  gmediarender trouvé — continuation"
+            ;;
+    esac
+}
+
+install_gmediarender
 vert "  gmediarender prêt"
 
 # ---------------------------------------------------------------------------
