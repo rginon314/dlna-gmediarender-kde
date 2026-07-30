@@ -41,6 +41,7 @@ PlasmoidItem {
 
     ListModel { id: modeleServices }
     ListModel { id: modelePeripheriques }
+    ListModel { id: modeleNoms }  // protocol <TAB> name
 
     function rafraichir() {
         // Services (DLNA, AirPlay, Spotify)
@@ -55,6 +56,16 @@ PlasmoidItem {
                     service: c[1],
                     actif: c[2] === "1"
                 });
+            }
+        });
+        // Receiver names
+        shell.lancer("--names", function (sortie) {
+            modeleNoms.clear();
+            for (const ligne of sortie.split("\n")) {
+                if (!ligne) continue;
+                const c = ligne.split("\t");
+                if (c.length < 2) continue;
+                modeleNoms.append({ proto: c[0], nom: c[1] });
             }
         });
         // Output devices
@@ -110,6 +121,17 @@ PlasmoidItem {
         if (occupe) return;
         occupe = true;
         shell.lancer("--restart-all", function () {
+            occupe = false;
+            rafraichir();
+        });
+    }
+
+    function renommer(proto, nom) {
+        if (occupe || !nom || nom.length === 0) return;
+        occupe = true;
+        // Escape single quotes for the shell command
+        const safeNom = nom.replace(/'/g, "'\\''");
+        shell.lancer("--rename " + proto + " '" + safeNom + "'", function () {
             occupe = false;
             rafraichir();
         });
@@ -236,11 +258,46 @@ PlasmoidItem {
                         opacity: model.actif ? 1.0 : 0.4
                     }
 
-                    PlasmaComponents.Label {
-                        text: model.nom
+                    // Editable receiver name — looks like a label until double-clicked.
+                    PlasmaComponents.TextField {
+                        id: champNom
                         Layout.fillWidth: true
+                        enabled: !root.occupe
+                        text: {
+                            for (let i = 0; i < modeleNoms.count; i++) {
+                                const e = modeleNoms.get(i);
+                                if (e.proto === model.nom) return e.nom;
+                            }
+                            return model.nom;
+                        }
                         font.bold: model.actif
                         opacity: model.actif ? 1.0 : 0.5
+                        placeholderText: model.nom
+                        readOnly: true
+
+                        MouseArea {
+                            anchors.fill: parent
+                            acceptedButtons: Qt.LeftButton
+                            onDoubleClicked: {
+                                champNom.readOnly = false;
+                                champNom.selectAll();
+                                champNom.forceActiveFocus();
+                            }
+                        }
+
+                        onAccepted: {
+                            if (!readOnly) {
+                                readOnly = true;
+                                focus = false;
+                                root.renommer(model.nom, text);
+                            }
+                        }
+                        onActiveFocusChanged: {
+                            if (!activeFocus && !readOnly) {
+                                readOnly = true;
+                                root.renommer(model.nom, text);
+                            }
+                        }
                     }
 
                     PlasmaComponents.ToolButton {
