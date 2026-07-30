@@ -76,28 +76,34 @@ PlasmoidItem {
         });
     }
 
-    Component.onCompleted: rafraichir()
+    Component.onCompleted: { rafraichir(); abonnement.ecouter() }
 
-    // Écoute des événements PulseAudio en temps réel : toute modification
-    // d'un sink-input (création, déplacement, suppression) déclenche un
-    // rafraîchissement immédiat. Pas de polling.
+    // Écoute des événements PulseAudio en temps réel : on lance une commande
+    // qui bloque jusqu'au prochain événement sink-input (avec un timeout de
+    // sécurité de 10 s), puis on la relance immédiatement. Le moteur
+    // "executable" de Plasma attend la fin de la commande pour émettre
+    // onNewData, donc on ne peut pas garder pactl subscribe ouvert en continu.
     Plasma5Support.DataSource {
         id: abonnement
         engine: "executable"
         connectedSources: []
 
-        Component.onCompleted: {
-            // pactl subscribe reste ouvert et émet une ligne par événement.
-            // On ne le déconnecte jamais : c'est un flux continu.
-            connectSource("sh -c 'pactl subscribe 2>/dev/null'")
+        property bool actif: false
+
+        function ecouter() {
+            if (actif) return
+            actif = true
+            // timeout 10s : si aucun événement, la commande se termine quand
+            // même et on relance. grep -m 1 sort au premier événement sink-input.
+            connectSource("sh -c 'timeout 10 pactl subscribe 2>/dev/null | grep -m 1 \"sink-input\" || true'")
         }
 
         onNewData: (source, data) => {
-            // Seuls les événements sur sink-input concernent le routing.
-            const ligne = ("" + data["stdout"]).trim();
-            if (ligne.indexOf("sink-input") >= 0) {
-                if (!root.occupe) root.rafraichir();
-            }
+            disconnectSource(source)
+            actif = false
+            if (!root.occupe) root.rafraichir()
+            // Relance immédiate : on se remet à écouter le prochain événement.
+            ecouter()
         }
     }
 
