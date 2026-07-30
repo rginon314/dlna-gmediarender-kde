@@ -10,20 +10,17 @@ import org.kde.plasma.plasma5support as Plasma5Support
 PlasmoidItem {
     id: root
 
-    // gmediarender-output vit dans ~/.local/bin, absent du PATH de plasmashell :
-    // on passe par un shell pour que $HOME soit resolu.
     readonly property string bin: "$HOME/.local/bin/gmediarender-output"
 
     property string peripheriqueActuel: "…"
     property string descriptionActive: "…"
-    property bool rendererActif: false
     property bool occupe: false
+    property string dernierEtat: ""
 
     Plasma5Support.DataSource {
         id: shell
         engine: "executable"
         connectedSources: []
-
         property var rappels: ({})
 
         function lancer(commande, rappel) {
@@ -42,10 +39,26 @@ PlasmoidItem {
         }
     }
 
+    ListModel { id: modeleServices }
     ListModel { id: modelePeripheriques }
 
     function rafraichir() {
-        shell.lancer("--data", function (sortie) {
+        // Services (DLNA, AirPlay, Spotify)
+        shell.lancer("--services", function (sortie) {
+            modeleServices.clear();
+            for (const ligne of sortie.split("\n")) {
+                if (!ligne) continue;
+                const c = ligne.split("\t");
+                if (c.length < 3) continue;
+                modeleServices.append({
+                    nom: c[0],
+                    service: c[1],
+                    actif: c[2] === "1"
+                });
+            }
+        });
+        // Output devices
+        shell.lancer("--sinks", function (sortie) {
             modelePeripheriques.clear();
             for (const ligne of sortie.split("\n")) {
                 if (!ligne) continue;
@@ -63,9 +76,6 @@ PlasmoidItem {
                 }
             }
         });
-        shell.lancer("--status", function (sortie, code) {
-            root.rendererActif = (code === 0);
-        });
     }
 
     function basculer(nom) {
@@ -78,20 +88,40 @@ PlasmoidItem {
         });
     }
 
+    function basculerService(svc) {
+        if (occupe) return;
+        occupe = true;
+        shell.lancer("--toggle " + svc, function () {
+            occupe = false;
+            rafraichir();
+        });
+    }
+
+    function redemarrerService(svc) {
+        if (occupe) return;
+        occupe = true;
+        shell.lancer("--restart " + svc, function () {
+            occupe = false;
+            rafraichir();
+        });
+    }
+
+    function toutRedemarrer() {
+        if (occupe) return;
+        occupe = true;
+        shell.lancer("--restart-all", function () {
+            occupe = false;
+            rafraichir();
+        });
+    }
+
     Component.onCompleted: rafraichir()
 
-    // Polling rapide (500 ms) : --data prend ~60 ms, donc on peut se
-    // permettre de comparer l'état précédent et ne rafraîchir le modèle
-    // que s'il a changé. Pas de pactl subscribe : trop fragile (buffering,
-    // récursion, boucles de rétroaction).
-    property string dernierEtat: ""
-
+    // Polling : vérifie si le sink actif a changé (switch externe).
     Timer {
         interval: 500; running: true; repeat: true
         onTriggered: {
             if (root.occupe) return
-            // On récupère l'état courant (sink actif) sans rafraîchir le
-            // modèle : on compare juste une chaîne de hachage.
             shell.lancer("--current", function (sortie) {
                 if (sortie !== root.dernierEtat) {
                     root.dernierEtat = sortie
@@ -101,12 +131,30 @@ PlasmoidItem {
         }
     }
 
+    // Polling des services : vérifie toutes les 3 s si un service a changé d'état.
+    Timer {
+        interval: 3000; running: true; repeat: true
+        onTriggered: {
+            if (!root.occupe) {
+                shell.lancer("--services", function (sortie) {
+                    modeleServices.clear();
+                    for (const ligne of sortie.split("\n")) {
+                        if (!ligne) continue;
+                        const c = ligne.split("\t");
+                        if (c.length < 3) continue;
+                        modeleServices.append({
+                            nom: c[0], service: c[1], actif: c[2] === "1"
+                        });
+                    }
+                })
+            }
+        }
+    }
+
     readonly property string icone: "org.gmediarender.kde"
     Plasmoid.icon: icone
-    toolTipMainText: i18n("Bureau Renderer")
-    toolTipSubText: rendererActif
-        ? i18n("Output: %1", descriptionActive)
-        : i18n("Renderer inactive")
+    toolTipMainText: i18n("Bureau Receivers")
+    toolTipSubText: i18n("DLNA · AirPlay · Spotify")
 
     compactRepresentation: MouseArea {
         onClicked: root.expanded = !root.expanded
@@ -114,14 +162,13 @@ PlasmoidItem {
             anchors.fill: parent
             source: root.icone
             isMask: true
-            opacity: root.rendererActif ? 1.0 : 0.5
         }
     }
 
     fullRepresentation: PlasmaExtras.Representation {
-        Layout.minimumWidth: Kirigami.Units.gridUnit * 24
-        Layout.minimumHeight: Kirigami.Units.gridUnit * 10
-        Layout.preferredHeight: Kirigami.Units.gridUnit * 18
+        Layout.minimumWidth: Kirigami.Units.gridUnit * 26
+        Layout.minimumHeight: Kirigami.Units.gridUnit * 14
+        Layout.preferredHeight: Kirigami.Units.gridUnit * 22
 
         header: PlasmaExtras.PlasmoidHeading {
             RowLayout {
@@ -133,14 +180,12 @@ PlasmoidItem {
                     spacing: 0
                     PlasmaExtras.Heading {
                         level: 4
-                        text: root.rendererActif ? root.descriptionActive : i18n("Inactive")
+                        text: root.descriptionActive
                         elide: Text.ElideRight
                         Layout.fillWidth: true
                     }
                     PlasmaComponents.Label {
-                        text: root.rendererActif
-                            ? i18n("DLNA renderer output")
-                            : i18n("Run systemctl --user start gmediarender")
+                        text: i18n("Output device")
                         font: Kirigami.Theme.smallFont
                         opacity: 0.7
                         elide: Text.ElideRight
@@ -153,63 +198,127 @@ PlasmoidItem {
                     Layout.preferredWidth: Kirigami.Units.iconSizes.small
                     Layout.preferredHeight: Kirigami.Units.iconSizes.small
                 }
-            }
-        }
-
-        contentItem: PlasmaComponents.ScrollView {
-            ListView {
-                id: liste
-                model: modelePeripheriques
-                spacing: Kirigami.Units.smallSpacing
-                clip: true
-                currentIndex: -1
-
-                delegate: PlasmaComponents.ItemDelegate {
-                    width: ListView.view.width
+                PlasmaComponents.ToolButton {
+                    icon.name: "view-refresh"
                     enabled: !root.occupe
-                    highlighted: model.estActif
-                    onClicked: root.basculer(model.nom)
-
-                    contentItem: RowLayout {
-                        spacing: Kirigami.Units.smallSpacing
-
-                        Kirigami.Icon {
-                            source: model.estActif ? "checkmark" : "audio-card"
-                            Layout.preferredWidth: Kirigami.Units.iconSizes.small
-                            Layout.preferredHeight: Kirigami.Units.iconSizes.small
-                            opacity: model.estActif ? 1.0 : 0.6
-                        }
-
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: 0
-                            PlasmaComponents.Label {
-                                text: model.description
-                                elide: Text.ElideRight
-                                Layout.fillWidth: true
-                                font.bold: model.estActif
-                            }
-                            PlasmaComponents.Label {
-                                text: model.nom
-                                elide: Text.ElideRight
-                                font: Kirigami.Theme.smallFont
-                                opacity: 0.6
-                                Layout.fillWidth: true
-                            }
-                        }
-                    }
+                    onClicked: root.toutRedemarrer()
+                    PlasmaComponents.ToolTip.text: i18n("Restart all receivers")
+                    PlasmaComponents.ToolTip.visible: hovered
+                    PlasmaComponents.ToolTip.delay: 700
                 }
             }
         }
 
-        footer: PlasmaExtras.PlasmoidHeading {
-            position: QQC.ToolBar.Footer
-            contentItem: PlasmaComponents.Label {
-                text: i18n("Click a device to switch the renderer output")
+        contentItem: ColumnLayout {
+            spacing: Kirigami.Units.smallSpacing
+
+            // --- Section : Receivers ---
+            PlasmaComponents.Label {
+                text: i18n("Receivers")
                 font: Kirigami.Theme.smallFont
-                opacity: 0.7
-                horizontalAlignment: Text.AlignHCenter
+                opacity: 0.6
+                Layout.leftMargin: Kirigami.Units.smallSpacing
+            }
+
+            Repeater {
+                model: modeleServices
+
+                delegate: RowLayout {
+                    Layout.fillWidth: true
+                    Layout.leftMargin: Kirigami.Units.smallSpacing
+                    Layout.rightMargin: Kirigami.Units.smallSpacing
+                    spacing: Kirigami.Units.smallSpacing
+
+                    Kirigami.Icon {
+                        source: model.actif ? "media-playback-start" : "media-playback-pause"
+                        Layout.preferredWidth: Kirigami.Units.iconSizes.small
+                        Layout.preferredHeight: Kirigami.Units.iconSizes.small
+                        opacity: model.actif ? 1.0 : 0.4
+                    }
+
+                    PlasmaComponents.Label {
+                        text: model.nom
+                        Layout.fillWidth: true
+                        font.bold: model.actif
+                        opacity: model.actif ? 1.0 : 0.5
+                    }
+
+                    PlasmaComponents.ToolButton {
+                        icon.name: "view-refresh"
+                        enabled: !root.occupe && model.actif
+                        onClicked: root.redemarrerService(model.service)
+                        PlasmaComponents.ToolTip.text: i18n("Restart %1", model.nom)
+                        PlasmaComponents.ToolTip.visible: hovered
+                        PlasmaComponents.ToolTip.delay: 700
+                    }
+
+                    PlasmaComponents.Switch {
+                        checked: model.actif
+                        enabled: !root.occupe
+                        onClicked: root.basculerService(model.service)
+                    }
+                }
+            }
+
+            Kirigami.Separator {
                 Layout.fillWidth: true
+                Layout.topMargin: Kirigami.Units.smallSpacing
+                Layout.bottomMargin: Kirigami.Units.smallSpacing
+            }
+
+            // --- Section : Output devices ---
+            PlasmaComponents.Label {
+                text: i18n("Output device")
+                font: Kirigami.Theme.smallFont
+                opacity: 0.6
+                Layout.leftMargin: Kirigami.Units.smallSpacing
+            }
+
+            PlasmaComponents.ScrollView {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                ListView {
+                    model: modelePeripheriques
+                    spacing: Kirigami.Units.smallSpacing
+                    clip: true
+                    currentIndex: -1
+
+                    delegate: PlasmaComponents.ItemDelegate {
+                        width: ListView.view.width
+                        enabled: !root.occupe
+                        highlighted: model.estActif
+                        onClicked: root.basculer(model.nom)
+
+                        contentItem: RowLayout {
+                            spacing: Kirigami.Units.smallSpacing
+
+                            Kirigami.Icon {
+                                source: model.estActif ? "checkmark" : "audio-card"
+                                Layout.preferredWidth: Kirigami.Units.iconSizes.small
+                                Layout.preferredHeight: Kirigami.Units.iconSizes.small
+                                opacity: model.estActif ? 1.0 : 0.6
+                            }
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 0
+                                PlasmaComponents.Label {
+                                    text: model.description
+                                    elide: Text.ElideRight
+                                    Layout.fillWidth: true
+                                    font.bold: model.estActif
+                                }
+                                PlasmaComponents.Label {
+                                    text: model.nom
+                                    elide: Text.ElideRight
+                                    font: Kirigami.Theme.smallFont
+                                    opacity: 0.6
+                                    Layout.fillWidth: true
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }

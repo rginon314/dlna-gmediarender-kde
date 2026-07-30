@@ -1,28 +1,34 @@
 #!/usr/bin/env bash
-# gmediarender-output — query/switch the DLNA renderer output sink.
+# bureau-receivers — manage DLNA, AirPlay and Spotify Connect receivers.
 #
-#   gmediarender-output              # list sinks (TSV: desc<TAB>name<TAB>active)
-#   gmediarender-output --status     # exit 0 if renderer running, 1 otherwise
-#   gmediarender-output --current    # print active sink name
-#   gmediarender-output <sink-name>  # switch to sink WITHOUT restarting
+#   bureau-receivers --services          # TSV: name<TAB>service<TAB>state(0/1)
+#   bureau-receivers --sinks            # TSV: desc<TAB>name<TAB>active(0/1)
+#   bureau-receivers --current          # active sink name
+#   bureau-receivers --toggle <svc>     # start/stop a service
+#   bureau-receivers --restart <svc>    # restart a service
+#   bureau-receivers --restart-all      # restart all services
+#   bureau-receivers <sink-name>        # switch output device live
 #
 set -euo pipefail
 
 CONF="${XDG_CONFIG_HOME:-$HOME/.config}/gmediarender.conf"
 
-# Returns the sink the live gmediarender stream is currently routed to.
-# Falls back to the config file if no stream is active (nothing playing).
+# Services: friendly_name <TAB> systemd_unit
+SERVICES=(
+    "DLNA	gmediarender.service"
+    "AirPlay	shairport-sync.service"
+    "Spotify	librespot.service"
+)
+
+# --- Sink helpers (same logic as before, for gmediarender) ---
+
 active_sink() {
-    # 1. Find the gmediarender sink-input and its sink from the verbose output.
-    #    The short output doesn't include the application name.
     local gmr_id sink_id sink_name
     gmr_id="$(pactl list sink-inputs 2>/dev/null | awk '
         /^Sink Input #/ { id=$3 }
         /application.name.*=.*gmediarender/ { print id; exit }
     ')"
     if [[ -n "$gmr_id" ]]; then
-        # Sink: line gives a bare number (e.g. "66167"), but Sink # lines
-        # include a # prefix (e.g. "#66167"). Strip it for comparison.
         sink_id="$(pactl list sink-inputs 2>/dev/null | awk -v target="$gmr_id" '
             /^Sink Input #/ { id=$3 }
             id==target && /^[\t ]*Sink:/ { print $2; exit }
@@ -35,13 +41,38 @@ active_sink() {
             [[ -n "$sink_name" ]] && { echo "$sink_name"; return 0; }
         fi
     fi
-
-    # 2. No live stream — use the config file (for the next track).
     awk -F'"' '/^GMRENDER_AUDIO_DEVICE=/{print $2}' "$CONF"
 }
 
-cmd_data() {
-    # TSV: description <TAB> sink-name <TAB> active(0/1)
+sync_config() {
+    local live conf_val
+    live="$(active_sink)"
+    [[ -z "$live" ]] && return 0
+    conf_val="$(awk -F'"' '/^GMRENDER_AUDIO_DEVICE=/{print $2}' "$CONF")"
+    [[ "$live" == "$conf_val" ]] && return 0
+    sed -i 's/^GMRENDER_AUDIO_DEVICE=/#GMRENDER_AUDIO_DEVICE=/' "$CONF"
+    sed -i "s|^#GMRENDER_AUDIO_DEVICE=\"$live\"|GMRENDER_AUDIO_DEVICE=\"$live\"|" "$CONF"
+    if ! grep -q "^GMRENDER_AUDIO_DEVICE=\"$live\"" "$CONF"; then
+        sed -i "s|^#GMRENDER_AUDIO_DEVICE=.*|GMRENDER_AUDIO_DEVICE=\"$live\"|" "$CONF"
+    fi
+}
+
+# --- Commands ---
+
+cmd_services() {
+    for entry in "${SERVICES[@]}"; do
+        local name="${entry%%	*}"
+        local svc="${entry##*	}"
+        if systemctl --user is-active --quiet "$svc" 2>/dev/null; then
+            printf '%s\t%s\t1\n' "$name" "$svc"
+        else
+            printf '%s\t%s\t0\n' "$name" "$svc"
+        fi
+    done
+}
+
+cmd_sinks() {
+    sync_config
     pactl list sinks 2>/dev/null | awk '
         /^[\t ]*Name:/ { name=$2 }
         /^[\t ]*Description:/ {
@@ -52,77 +83,65 @@ cmd_data() {
     ' ACTIVE="$(active_sink)"
 }
 
-cmd_status() {
-    systemctl --user is-active --quiet gmediarender.service
-}
-
 cmd_current() {
     active_sink
 }
 
-# Force-sync the config file to match the live stream's actual sink.
-# Called after --data so the applet and config never drift apart.
-sync_config() {
-    local live
-    live="$(active_sink)"
-    [[ -z "$live" ]] && return 0
-    local conf_val
-    conf_val="$(awk -F'"' '/^GMRENDER_AUDIO_DEVICE=/{print $2}' "$CONF")"
-    [[ "$live" == "$conf_val" ]] && return 0
-    sed -i 's/^GMRENDER_AUDIO_DEVICE=/#GMRENDER_AUDIO_DEVICE=/' "$CONF"
-    sed -i "s|^#GMRENDER_AUDIO_DEVICE=\"$live\"|GMRENDER_AUDIO_DEVICE=\"$live\"|" "$CONF"
-    if ! grep -q "^GMRENDER_AUDIO_DEVICE=\"$live\"" "$CONF"; then
-        sed -i "s|^#GMRENDER_AUDIO_DEVICE=.*|GMRENDER_AUDIO_DEVICE=\"$live\"|" "$CONF"
+cmd_toggle() {
+    local svc="$1"
+    if systemctl --user is-active --quiet "$svc" 2>/dev/null; then
+        systemctl --user stop "$svc"
+    else
+        systemctl --user start "$svc"
     fi
+}
+
+cmd_restart() {
+    local svc="$1"
+    systemctl --user restart "$svc"
+}
+
+cmd_restart_all() {
+    for entry in "${SERVICES[@]}"; do
+        local svc="${entry##*	}"
+        systemctl --user restart "$svc" 2>/dev/null || true
+    done
 }
 
 cmd_switch() {
     local target="$1"
-    # Validate the sink exists
     if ! pactl list short sinks 2>/dev/null | awk '{print $2}' | grep -qx "$target"; then
         echo "unknown sink: $target" >&2
         exit 1
     fi
-
-    # Update the config file (for next service restart).
     sed -i 's/^GMRENDER_AUDIO_DEVICE=/#GMRENDER_AUDIO_DEVICE=/' "$CONF"
     sed -i "s|^#GMRENDER_AUDIO_DEVICE=\"$target\"|GMRENDER_AUDIO_DEVICE=\"$target\"|" "$CONF"
     if ! grep -q "^GMRENDER_AUDIO_DEVICE=\"$target\"" "$CONF"; then
         sed -i "s|^#GMRENDER_AUDIO_DEVICE=.*|GMRENDER_AUDIO_DEVICE=\"$target\"|" "$CONF"
     fi
-
-    # Move the live gmediarender stream to the new sink, without restarting.
-    # This keeps the current DLNA session alive — audio continues transparently.
-    local moved=0
     local gmr_id
     gmr_id="$(pactl list sink-inputs 2>/dev/null | awk '
         /^Sink Input #/ { id=$3 }
         /application.name.*=.*gmediarender/ { print id; exit }
     ')"
-    # Strip the # prefix : pactl move-sink-input expects a bare number.
     gmr_id="${gmr_id#\#}"
-    if [[ -n "$gmr_id" ]] && pactl move-sink-input "$gmr_id" "$target" 2>/dev/null; then
-        moved=1
+    if [[ -n "$gmr_id" ]]; then
+        pactl move-sink-input "$gmr_id" "$target" 2>/dev/null || true
     fi
-
-    # If no live stream was found (nothing playing), also set the default sink
-    # so the next track goes to the right place.
     pactl set-default-sink "$target" 2>/dev/null || true
-
-    if (( moved == 0 )); then
-        # No active stream to move — nothing breaks, the config is already
-        # updated for the next track.
-        :
-    fi
 }
 
 case "${1:-}" in
-    --data)   sync_config; cmd_data ;;
-    --status) cmd_status ;;
-    --current) cmd_current ;;
-    "")       cmd_data ;;
+    --services)    cmd_services ;;
+    --sinks)        cmd_sinks ;;
+    --status)       systemctl --user is-active --quiet gmediarender.service ;;
+    --current)      cmd_current ;;
+    --toggle)       cmd_toggle "${2:-}" ;;
+    --restart)      cmd_restart "${2:-}" ;;
+    --restart-all)  cmd_restart_all ;;
+    "")             cmd_sinks ;;
     -h|--help)
         sed -n '2,/^$/p' "$0" | sed 's/^# \?//'
         ;;
-    *)        cmd_switch "$1" ;;
+    *)              cmd_switch "$1" ;;
 esac
