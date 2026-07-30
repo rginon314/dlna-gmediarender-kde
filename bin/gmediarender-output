@@ -191,6 +191,23 @@ cmd_rename_all() {
 
 # --- Player controls ---
 
+# Returns the protocol that has an active (non-corked) PulseAudio stream.
+# Prints "AirPlay", "DLNA", "Spotify", or empty.
+cmd_active_player() {
+    # Check which receiver has an active (non-corked) stream.
+    # "Corked: no" = playing, "Corked: yes" = paused.
+    local out
+    out="$(pactl list sink-inputs 2>/dev/null | awk '
+        /^Sink Input #/ { id=substr($3, 2); corked="yes"; app="" }
+        /application.name.*shairport/ { app="AirPlay" }
+        /application.name.*gmediarender/ { app="DLNA" }
+        /application.name.*librespot/ { app="Spotify" }
+        /^[[:space:]]*Corked:/ { corked=$2 }
+        app != "" && corked == "no" { print app; app=""; corked="yes" }
+    ')"
+    echo "$out" | head -1
+}
+
 # Find the PulseAudio sink-input ID for a given application name.
 pa_sink_input_id() {
     local app="$1"
@@ -345,6 +362,7 @@ case "${1:-}" in
     --player-info)   cmd_player_info "${2:-}" ;;
     --volume)        cmd_volume "${2:-}" "${3:-}" ;;
     --volume-info)   cmd_volume_info "${2:-}" ;;
+    --active-player) cmd_active_player ;;
     "")             cmd_sinks ;;
     -h|--help)
         sed -n '2,/^$/p' "$0" | sed 's/^# \?//'

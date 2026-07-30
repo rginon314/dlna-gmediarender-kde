@@ -146,64 +146,44 @@ PlasmoidItem {
 
     function rafraichirPlayer() {
         if (occupe) return;
-        // Build list of active protocols, prioritizing those with real
-        // player info (AirPlay, Spotify) over DLNA (which only has status).
-        var protos = [];
-        var dlna = [];
-        for (var i = 0; i < modeleServices.count; i++) {
-            var s = modeleServices.get(i);
-            if (!s.actif) continue;
-            if (s.nom === "DLNA") dlna.push(s.nom);
-            else protos.push(s.nom);
-        }
-        // DLNA last — it always reports "Playing" even without track info.
-        protos = protos.concat(dlna);
-        if (protos.length === 0) {
-            joueurActif = "";
-            return;
-        }
-        // Query the first protocol. If inactive, the next poll will try
-        // the next one. Avoid recursive callbacks — they crash plasmashell.
-        var proto = protos[0];
-        shell.lancer("--player-info " + proto, function (sortie) {
-            var c = sortie.split("\t");
-            if (c.length >= 6) {
-                var status = c[0];
-                if (status !== "Inactive" && status !== "Stopped") {
-                    joueurActif = proto;
-                    playerStatus = status;
+        // Ask the CLI which protocol has an active (non-corked) stream.
+        shell.lancer("--active-player", function (proto) {
+            proto = proto.trim();
+            if (proto === "" || proto === "DLNA") {
+                // No active stream, or only DLNA (which has no track info).
+                // For DLNA, still show "Playing" without track info.
+                if (proto === "DLNA") {
+                    joueurActif = "DLNA";
+                    playerStatus = "Playing";
+                    playerTitle = "";
+                    playerArtist = "";
+                    playerAlbum = "";
+                    playerPosition = 0;
+                    playerDuration = 0;
+                    shell.lancer("--volume-info DLNA", function (vol) {
+                        playerVolume = parseInt(vol) || 0;
+                    });
+                } else {
+                    joueurActif = "";
+                }
+                return;
+            }
+            // AirPlay or Spotify is actively playing — get full info.
+            joueurActif = proto;
+            shell.lancer("--player-info " + proto, function (sortie) {
+                var c = sortie.split("\t");
+                if (c.length >= 6) {
+                    playerStatus = c[0];
                     playerTitle = c[1];
                     playerArtist = c[2];
                     playerAlbum = c[3];
                     playerPosition = parseFloat(c[4]) || 0;
                     playerDuration = parseFloat(c[5]) || 0;
-                    shell.lancer("--volume-info " + proto, function (vol) {
-                        playerVolume = parseInt(vol) || 0;
-                    });
-                } else if (protos.length > 1) {
-                    // Try the next protocol.
-                    var proto2 = protos[1];
-                    shell.lancer("--player-info " + proto2, function (sortie2) {
-                        var c2 = sortie2.split("\t");
-                        if (c2.length >= 6 && c2[0] !== "Inactive" && c2[0] !== "Stopped") {
-                            joueurActif = proto2;
-                            playerStatus = c2[0];
-                            playerTitle = c2[1];
-                            playerArtist = c2[2];
-                            playerAlbum = c2[3];
-                            playerPosition = parseFloat(c2[4]) || 0;
-                            playerDuration = parseFloat(c2[5]) || 0;
-                            shell.lancer("--volume-info " + proto2, function (vol2) {
-                                playerVolume = parseInt(vol2) || 0;
-                            });
-                        } else {
-                            joueurActif = "";
-                        }
-                    });
-                } else {
-                    joueurActif = "";
                 }
-            }
+            });
+            shell.lancer("--volume-info " + proto, function (vol) {
+                playerVolume = parseInt(vol) || 0;
+            });
         });
     }
 
