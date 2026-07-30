@@ -146,12 +146,18 @@ PlasmoidItem {
 
     function rafraichirPlayer() {
         if (occupe) return;
-        // Build list of active protocols.
+        // Build list of active protocols, prioritizing those with real
+        // player info (AirPlay, Spotify) over DLNA (which only has status).
         var protos = [];
+        var dlna = [];
         for (var i = 0; i < modeleServices.count; i++) {
             var s = modeleServices.get(i);
-            if (s.actif) protos.push(s.nom);
+            if (!s.actif) continue;
+            if (s.nom === "DLNA") dlna.push(s.nom);
+            else protos.push(s.nom);
         }
+        // DLNA last — it always reports "Playing" even without track info.
+        protos = protos.concat(dlna);
         if (protos.length === 0) {
             joueurActif = "";
             return;
