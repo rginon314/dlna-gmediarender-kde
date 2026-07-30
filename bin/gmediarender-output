@@ -13,16 +13,26 @@ CONF="${XDG_CONFIG_HOME:-$HOME/.config}/gmediarender.conf"
 # Returns the sink the live gmediarender stream is currently routed to.
 # Falls back to the config file if no stream is active (nothing playing).
 active_sink() {
-    # 1. Look for a live gmediarender sink-input and resolve its sink name.
-    local id sink_id sink_name
-    while read -r id sink_id _; do
-        [[ "$id" =~ ^[0-9]+$ ]] || continue
-        sink_name="$(pactl list sinks 2>/dev/null | awk -v s="$sink_id" '
-            /^Sink #/ { cur=$2 }
-            /^[	 ]*Name:/ && cur==s { print $2 }
+    # 1. Find the gmediarender sink-input and its sink from the verbose output.
+    #    The short output doesn't include the application name.
+    local gmr_id sink_id sink_name
+    gmr_id="$(pactl list sink-inputs 2>/dev/null | awk '
+        /^Sink Input #/ { id=$3 }
+        /application.name.*=.*gmediarender/ { print id; exit }
+    ')"
+    if [[ -n "$gmr_id" ]]; then
+        sink_id="$(pactl list sink-inputs 2>/dev/null | awk -v target="$gmr_id" '
+            /^Sink Input #/ { id=$3; if (found) exit }
+            id==target && /^Sink:/ { print $2; found=1 }
         ')"
-        [[ -n "$sink_name" ]] && { echo "$sink_name"; return 0; }
-    done < <(pactl list short sink-inputs 2>/dev/null | grep -i 'gmediarender')
+        if [[ -n "$sink_id" ]]; then
+            sink_name="$(pactl list sinks 2>/dev/null | awk -v s="$sink_id" '
+                /^Sink #/ { cur=$2 }
+                /^[\t ]*Name:/ && cur==s { print $2 }
+            ')"
+            [[ -n "$sink_name" ]] && { echo "$sink_name"; return 0; }
+        fi
+    fi
 
     # 2. No live stream — use the config file (for the next track).
     awk -F'"' '/^GMRENDER_AUDIO_DEVICE=/{print $2}' "$CONF"
@@ -82,12 +92,14 @@ cmd_switch() {
     # Move the live gmediarender stream to the new sink, without restarting.
     # This keeps the current DLNA session alive — audio continues transparently.
     local moved=0
-    while read -r id _ sink _; do
-        [[ "$id" =~ ^[0-9]+$ ]] || continue
-        if pactl move-sink-input "$id" "$target" 2>/dev/null; then
-            moved=1
-        fi
-    done < <(pactl list short sink-inputs 2>/dev/null | grep -i 'gmediarender')
+    local gmr_id
+    gmr_id="$(pactl list sink-inputs 2>/dev/null | awk '
+        /^Sink Input #/ { id=$3 }
+        /application.name.*=.*gmediarender/ { print id; exit }
+    ')"
+    if [[ -n "$gmr_id" ]] && pactl move-sink-input "$gmr_id" "$target" 2>/dev/null; then
+        moved=1
+    fi
 
     # If no live stream was found (nothing playing), also set the default sink
     # so the next track goes to the right place.
