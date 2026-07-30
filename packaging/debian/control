@@ -1,0 +1,17 @@
+Package: dlna-gmediarender-kde
+Version: [[VERSION]]
+Section: sound
+Priority: optional
+Architecture: all
+Depends: gmediarender, gstreamer1.0-plugins-base, gstreamer1.0-plugins-good, gstreamer1.0-plugins-bad, gstreamer1.0-plugins-ugly, gstreamer1.0-libav, pactl
+Maintainer: Grégory D <rginon314@github.com>
+Description: KDE Plasma 6 applet to receive DLNA audio and switch output device live
+ A Plasma 6 widget that turns your Linux machine into a DLNA renderer
+ able to receive audio pushed from a Synology NAS (Audio Station / DS audio),
+ and lets you switch the output device live without interrupting playback.
+ .
+ Includes:
+  * Plasma 6 applet (org.gmediarender.kde)
+  * CLI helper (gmediarender-output) for querying/switching sinks
+  * User systemd service for gmediarender
+  * Configuration file

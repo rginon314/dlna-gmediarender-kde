@@ -1,0 +1,31 @@
+#!/usr/bin/make -f
+# Minimal debian/rules — no compilation needed, just file installation.
+
+DESTDIR ?= $(CURDIR)/debian/dlna-gmediarender-kde
+
+%:
+	dh $@
+
+override_dh_auto_install:
+	# CLI helper
+	install -Dm755 $(CURDIR)/../../bin/gmediarender-output \
+		$(DESTDIR)/usr/bin/gmediarender-output
+	# systemd user service
+	install -Dm644 $(CURDIR)/../../systemd/gmediarender.service \
+		$(DESTDIR)/usr/lib/systemd/user/gmediarender.service
+	# Plasma applet
+	mkdir -p $(DESTDIR)/usr/share/plasma/plasmoids/org.gmediarender.kde
+	cp -r $(CURDIR)/../../plasmoid/. \
+		$(DESTDIR)/usr/share/plasma/plasmoids/org.gmediarender.kde/
+	# Icon
+	install -Dm644 $(CURDIR)/../../plasmoid/contents/icons/gmediarender.svg \
+		$(DESTDIR)/usr/share/icons/hicolor/scalable/apps/org.gmediarender.kde.svg
+	# Default config
+	install -Dm644 $(CURDIR)/debian/gmediarender.conf \
+		$(DESTDIR)/etc/gmediarender/gmediarender.conf
+
+override_dh_auto_build:
+	# Nothing to compile.
+
+override_dh_auto_test:
+	# No tests.

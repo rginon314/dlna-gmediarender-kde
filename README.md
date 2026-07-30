@@ -126,12 +126,31 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-The workflow builds two artifacts and attaches them to a GitHub Release:
+The workflow builds four package formats and attaches them to a GitHub Release:
 
-| Artifact | Description |
-|---|---|
-| `dlna-gmediarender-0.1.0.plasmoid` | Plasma package — install via *Add Widgets → Install from local file* |
-| `dlna-gmediarender-0.1.0.tar.gz` | Full source tarball (includes `install.sh`) |
+| Artifact | Format | Distributions |
+|---|---|---|
+| `dlna-gmediarender-0.1.0.plasmoid` | Plasma package | Any KDE Plasma 6 (install via *Add Widgets → Install from local file*) |
+| `dlna-gmediarender-kde_0.1.0_all.deb` | Debian package | Debian, Ubuntu, Mint, KDE Neon |
+| `dlna-gmediarender-kde-0.1.0-1.*.noarch.rpm` | RPM package | Fedora, openSUSE |
+| `dlna-gmediarender-kde-0.1.0-*.pkg.tar.zst` | Arch package | Arch, Manjaro, EndeavourOS |
+| `dlna-gmediarender-0.1.0.tar.gz` | Source tarball | Any (includes `install.sh`) |
+
+### Installing from packages
+
+```bash
+# Debian / Ubuntu
+sudo apt install ./dlna-gmediarender-kde_0.1.0_all.deb
+
+# Fedora / openSUSE
+sudo dnf install ./dlna-gmediarender-kde-0.1.0-1.*.noarch.rpm
+
+# Arch / Manjaro
+sudo pacman -U dlna-gmediarender-kde-0.1.0-*.pkg.tar.zst
+
+# Plasma applet only (any distro)
+# Add Widgets → Install from local file → select the .plasmoid
+```
 
 Tags containing a hyphen (e.g. `v0.1.0-rc1`) are published as pre-releases.
 

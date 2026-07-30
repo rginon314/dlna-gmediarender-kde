@@ -6,7 +6,10 @@ on:
       - 'v*'
 
 jobs:
-  package:
+  # ─────────────────────────────────────────────────────────────────
+  # .plasmoid + source tarball (always)
+  # ─────────────────────────────────────────────────────────────────
+  plasmoid:
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -20,8 +23,6 @@ jobs:
 
       - name: Create Plasma package (.plasmoid)
         run: |
-          # Un .plasmoid est une archive zip du répertoire plasmoid/.
-          # On exclut les fichiers de build et les .po non compilés.
           cd plasmoid
           zip -r "../dlna-gmediarender-${{ steps.version.outputs.version }}.plasmoid" . \
               -x '*.git*' 'build-translations.sh' 'po/*'
@@ -30,14 +31,190 @@ jobs:
         run: |
           tar czf "dlna-gmediarender-${{ steps.version.outputs.version }}.tar.gz" \
               --transform 's,^,dlna-gmediarender-${{ steps.version.outputs.version }}/,' \
-              README.md LICENSE install.sh bin/ systemd/ plasmoid/
+              README.md LICENSE install.sh bin/ systemd/ plasmoid/ packaging/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: plasmoid-artifacts
+          path: |
+            dlna-gmediarender-${{ steps.version.outputs.version }}.plasmoid
+            dlna-gmediarender-${{ steps.version.outputs.version }}.tar.gz
+
+  # ─────────────────────────────────────────────────────────────────
+  # .deb (Debian / Ubuntu / Mint / KDE Neon)
+  # ─────────────────────────────────────────────────────────────────
+  deb:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Install build deps
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq debhelper dh-make
+
+      - name: Build .deb
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          PKGNAME="dlna-gmediarender-kde"
+          # Build the package tree manually (no source package needed).
+          BUILD_DIR="$(mktemp -d)"
+          DESTDIR="$BUILD_DIR/$PKGNAME"
+          mkdir -p "$DESTDIR/DEBIAN"
+
+          # control file
+          sed "s/\[\[VERSION\]\]/$VERSION/" packaging/debian/control \
+              > "$DESTDIR/DEBIAN/control"
+          cp packaging/debian/gmediarender.conf "$DESTDIR/DEBIAN/"
+          # postinst: reload icon cache
+          cat > "$DESTDIR/DEBIAN/postinst" <<'POSTINST'
+#!/bin/sh
+gtk-update-icon-cache -qtf /usr/share/icons/hicolor 2>/dev/null || true
+POSTINST
+          chmod 755 "$DESTDIR/DEBIAN/postinst"
+
+          # Files
+          install -Dm755 bin/gmediarender-output "$DESTDIR/usr/bin/gmediarender-output"
+          install -Dm644 systemd/gmediarender.service \
+              "$DESTDIR/usr/lib/systemd/user/gmediarender.service"
+          mkdir -p "$DESTDIR/usr/share/plasma/plasmoids/org.gmediarender.kde"
+          cp -r plasmoid/. "$DESTDIR/usr/share/plasma/plasmoids/org.gmediarender.kde/"
+          install -Dm644 plasmoid/contents/icons/gmediarender.svg \
+              "$DESTDIR/usr/share/icons/hicolor/scalable/apps/org.gmediarender.kde.svg"
+          install -Dm644 packaging/debian/gmediarender.conf \
+              "$DESTDIR/etc/gmediarender/gmediarender.conf"
+          install -Dm644 LICENSE \
+              "$DESTDIR/usr/share/licenses/$PKGNAME/LICENSE"
+
+          # Build
+          dpkg-deb --build --root-owner-group "$DESTDIR" \
+              "$PKGNAME_${VERSION}_all.deb"
+
+          cp "$BUILD_DIR/${PKGNAME}_${VERSION}_all.deb" .
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: deb-artifacts
+          path: dlna-gmediarender-kde_${{ steps.version.outputs.version }}_all.deb
+
+  # ─────────────────────────────────────────────────────────────────
+  # .rpm (Fedora / openSUSE)
+  # ─────────────────────────────────────────────────────────────────
+  rpm:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Install rpmbuild
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq rpm
+
+      - name: Build .rpm
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          PKGNAME="dlna-gmediarender-kde"
+          # Create the source tarball that the spec expects.
+          mkdir -p "/tmp/rpmbuild/SOURCES"
+          tar czf "/tmp/rpmbuild/SOURCES/${PKGNAME}-${VERSION}.tar.gz" \
+              --transform "s,^,${PKGNAME}-${VERSION}/," \
+              bin/ systemd/ plasmoid/ packaging/ LICENSE README.md
+
+          # Build
+          rpmbuild -ba packaging/dlna-gmediarender-kde.spec \
+              --define "_topdir /tmp/rpmbuild" \
+              --define "version $VERSION" \
+              --define "release 1" || true
+
+          # Copy the built RPM (noarch)
+          cp /tmp/rpmbuild/RPMS/noarch/${PKGNAME}-${VERSION}-1.*.noarch.rpm . \
+              2>/dev/null || cp /tmp/rpmbuild/RPMS/*/${PKGNAME}*.rpm . 2>/dev/null || true
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpm-artifacts
+          path: dlna-gmediarender-kde-*.rpm
+
+  # ─────────────────────────────────────────────────────────────────
+  # .pkg.tar.zst (Arch / Manjaro)
+  # ─────────────────────────────────────────────────────────────────
+  arch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    container:
+      image: archlinux:latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Install build deps
+        run: pacman -Syu --noconfirm base-devel pacman-contrib 2>/dev/null || true
+
+      - name: Build .pkg.tar.zst
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          # Copy PKGBUILD and patch the version + source.
+          mkdir -p /tmp/archbuild
+          cp packaging/PKGBUILD /tmp/archbuild/
+          cd /tmp/archbuild
+          sed -i "s/^pkgver=.*/pkgver=$VERSION/" PKGBUILD
+          # Point source to the local checkout.
+          sed -i "s|^source=.*|source=(\"${GITHUB_WORKSPACE}\")|" PKGBUILD
+          sed -i "s/^sha256sums=.*/sha256sums=('SKIP')/" PKGBUILD
+          # Build in a non-root user (makepkg refuses root).
+          useradd -m builder || true
+          chown -R builder:builder .
+          su builder -c "makepkg --syncdeps --noconfirm -f" || true
+
+          # Copy the built package.
+          cp *.pkg.tar.zst "$GITHUB_WORKSPACE/" 2>/dev/null || true
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: arch-artifacts
+          path: dlna-gmediarender-kde-*.pkg.tar.zst
+
+  # ─────────────────────────────────────────────────────────────────
+  # Publish the GitHub Release with all artifacts
+  # ─────────────────────────────────────────────────────────────────
+  release:
+    needs: [plasmoid, deb, rpm, arch]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge: true
+
+      - name: List artifacts
+        run: find artifacts -type f | sort
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            dlna-gmediarender-${{ steps.version.outputs.version }}.plasmoid
-            dlna-gmediarender-${{ steps.version.outputs.version }}.tar.gz
+          files: artifacts/**
           generate_release_notes: true
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}

@@ -1,0 +1,6 @@
+dlna-gmediarender-kde (0.1.0-1) unstable; urgency=medium
+
+  * Initial package release
+  * Plasma 6 applet, CLI helper, systemd service
+
+ -- Grégory D <rginon314@github.com>  Wed, 30 Jul 2026 21:00:00 +0200
