@@ -149,26 +149,11 @@ PlasmoidItem {
         // Ask the CLI which protocol has an active (non-corked) stream.
         shell.lancer("--active-player", function (proto) {
             proto = proto.trim();
-            if (proto === "" || proto === "DLNA") {
-                // No active stream, or only DLNA (which has no track info).
-                // For DLNA, still show "Playing" without track info.
-                if (proto === "DLNA") {
-                    joueurActif = "DLNA";
-                    playerStatus = "Playing";
-                    playerTitle = "";
-                    playerArtist = "";
-                    playerAlbum = "";
-                    playerPosition = 0;
-                    playerDuration = 0;
-                    shell.lancer("--volume-info DLNA", function (vol) {
-                        playerVolume = parseInt(vol) || 0;
-                    });
-                } else {
-                    joueurActif = "";
-                }
+            if (proto === "") {
+                joueurActif = "";
                 return;
             }
-            // AirPlay or Spotify is actively playing — get full info.
+            // Query the active protocol for full player info.
             joueurActif = proto;
             shell.lancer("--player-info " + proto, function (sortie) {
                 var c = sortie.split("\t");
