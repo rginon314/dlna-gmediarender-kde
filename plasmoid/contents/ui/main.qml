@@ -93,9 +93,12 @@ PlasmoidItem {
         function ecouter() {
             if (actif) return
             actif = true
-            // timeout 10s : si aucun événement, la commande se termine quand
-            // même et on relance. grep -m 1 sort au premier événement sink-input.
-            connectSource("sh -c 'timeout 10 pactl subscribe 2>/dev/null | grep -m 1 \"sink-input\" || true'")
+            // stdbuf -oL désactive le buffer de sortie de pactl subscribe,
+            // sinon grep ne reçoit jamais les lignes (buffer de pipe).
+            // timeout 10 sur pactl : si aucun événement, le processus se
+            // termine et on relance. grep -m 1 sort au premier sink-input.
+            // Le || true couvre le SIGPIPE de grep quand pactl est tué.
+            connectSource("sh -c 'stdbuf -oL timeout 10 pactl subscribe 2>/dev/null | grep --line-buffered -m 1 \"sink-input\" || true'")
         }
 
         onNewData: (source, data) => {
