@@ -454,9 +454,6 @@ PlasmoidItem {
                         }
                     }
                 }
-                        }
-                    }
-                }
 
                 // Info message for protocols without transport control.
                 PlasmaComponents.Label {
