@@ -269,10 +269,28 @@ cmd_player_info() {
             fi
             ;;
         DLNA)
-            # gmediarender logs the track name — parse from journalctl.
-            local title
-            title="$(journalctl --user -u gmediarender.service --no-pager -n 5 2>/dev/null | grep -oP 'media.name = "\K[^"]*' | tail -1 || echo '')"
-            printf 'Playing\t%s\t\t\t0\t0\n' "${title:-}"
+            # gmediarender doesn't expose track metadata.
+            # Check if there's an active gmediarender stream in PulseAudio.
+            local gmr_id
+            gmr_id="$(pactl list sink-inputs 2>/dev/null | awk '
+                /^Sink Input #/ { id=substr($3, 2) }
+                /application.name.*=.*gmediarender/ { print id; exit }
+            ')"
+            if [[ -n "$gmr_id" ]]; then
+                # Check if the stream is corked (paused) or playing.
+                local corked
+                corked="$(pactl list sink-inputs 2>/dev/null | awk -v t="$gmr_id" '
+                    /^Sink Input #/ { id=substr($3, 2) }
+                    id==t && /pulse.corked/ { print $3 }
+                ')"
+                if [[ "$corked" == "true" ]]; then
+                    printf 'Paused\t\t\t\t0\t0\n'
+                else
+                    printf 'Playing\t\t\t\t0\t0\n'
+                fi
+            else
+                printf 'Inactive\t\t\t\t0\t0\n'
+            fi
             ;;
     esac
 }

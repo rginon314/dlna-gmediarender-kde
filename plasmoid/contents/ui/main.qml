@@ -171,8 +171,9 @@ PlasmoidItem {
                 if (c.length >= 6) {
                     var status = c[0];
                     var title = c[1];
-                    // Active if status is not Inactive/Stopped, or if there's a title.
-                    if (status !== "Inactive" && status !== "Stopped" || title !== "") {
+                    // Active if status is not Inactive/Stopped.
+                    // DLNA shows "Playing" even without a title.
+                    if (status !== "Inactive" && status !== "Stopped") {
                         found = true;
                         joueurActif = proto;
                         playerStatus = status;
