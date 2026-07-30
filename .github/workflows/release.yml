@@ -73,10 +73,8 @@ jobs:
               > "$DESTDIR/DEBIAN/control"
           cp packaging/debian/gmediarender.conf "$DESTDIR/DEBIAN/"
           # postinst: reload icon cache
-          cat > "$DESTDIR/DEBIAN/postinst" <<'POSTINST'
-#!/bin/sh
-gtk-update-icon-cache -qtf /usr/share/icons/hicolor 2>/dev/null || true
-POSTINST
+          printf '#!/bin/sh\ngtk-update-icon-cache -qtf /usr/share/icons/hicolor 2>/dev/null || true\n' \
+              > "$DESTDIR/DEBIAN/postinst"
           chmod 755 "$DESTDIR/DEBIAN/postinst"
 
           # Files
@@ -171,18 +169,26 @@ POSTINST
       - name: Build .pkg.tar.zst
         run: |
           VERSION="${{ steps.version.outputs.VERSION }}"
-          # Copy PKGBUILD and patch the version + source.
+          PKGNAME="dlna-gmediarender-kde"
+          # Create a source tarball that makepkg can extract.
+          cd "$GITHUB_WORKSPACE"
+          tar czf "/tmp/${PKGNAME}-${VERSION}.tar.gz" \
+              --transform "s,^,${PKGNAME}-${VERSION}/," \
+              bin/ systemd/ plasmoid/ packaging/ LICENSE README.md
+
+          # Prepare the build directory.
           mkdir -p /tmp/archbuild
           cp packaging/PKGBUILD /tmp/archbuild/
+          cp "/tmp/${PKGNAME}-${VERSION}.tar.gz" /tmp/archbuild/
           cd /tmp/archbuild
           sed -i "s/^pkgver=.*/pkgver=$VERSION/" PKGBUILD
-          # Point source to the local checkout.
-          sed -i "s|^source=.*|source=(\"${GITHUB_WORKSPACE}\")|" PKGBUILD
+          # Point source to the local tarball.
+          sed -i "s|^source=.*|source=(\"${PKGNAME}-\${pkgver}.tar.gz\")|" PKGBUILD
           sed -i "s/^sha256sums=.*/sha256sums=('SKIP')/" PKGBUILD
           # Build in a non-root user (makepkg refuses root).
           useradd -m builder || true
           chown -R builder:builder .
-          su builder -c "makepkg --syncdeps --noconfirm -f" || true
+          su builder -c "makepkg --noconfirm -f" || true
 
           # Copy the built package.
           cp *.pkg.tar.zst "$GITHUB_WORKSPACE/" 2>/dev/null || true
