@@ -39,7 +39,7 @@ install -Dm755 bin/gmediarender-output %{buildroot}%{_bindir}/gmediarender-outpu
 
 # systemd user service
 install -Dm644 systemd/gmediarender.service \
-    %{buildroot}%{_userunitdir}/gmediarender.service
+    %{buildroot}/usr/lib/systemd/user/gmediarender.service
 
 # Plasma applet
 mkdir -p %{buildroot}%{_datadir}/plasma/plasmoids/org.gmediarender.kde
@@ -55,7 +55,7 @@ install -Dm644 packaging/debian/gmediarender.conf \
 
 %files
 %{_bindir}/gmediarender-output
-%{_userunitdir}/gmediarender.service
+/usr/lib/systemd/user/gmediarender.service
 %{_datadir}/plasma/plasmoids/org.gmediarender.kde/
 %{_datadir}/icons/hicolor/scalable/apps/org.gmediarender.kde.svg
 %config(noreplace) %{_sysconfdir}/gmediarender/gmediarender.conf
