@@ -438,7 +438,7 @@ PlasmoidItem {
                     Layout.fillWidth: true
                     Layout.alignment: Qt.AlignHCenter
                     spacing: Kirigami.Units.largeSpacing
-                    visible: joueurActif !== "" && joueurActif !== "DLNA" && joueurActif !== "AirPlay" && joueurActif !== "Spotify"
+                    visible: joueurActif !== "" && joueurActif !== "AirPlay" && joueurActif !== "Spotify"
 
                     PlasmaComponents.ToolButton {
                         icon.name: "media-skip-backward"
@@ -464,7 +464,7 @@ PlasmoidItem {
                     font: Kirigami.Theme.smallFont
                     opacity: 0.5
                     horizontalAlignment: Text.AlignHCenter
-                    visible: joueurActif === "DLNA" || joueurActif === "AirPlay" || joueurActif === "Spotify"
+                    visible: joueurActif === "AirPlay" || joueurActif === "Spotify"
                 }
 
                 // Volume slider

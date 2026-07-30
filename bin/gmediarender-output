@@ -239,8 +239,44 @@ cmd_player() {
             echo "Spotify transport is controlled from the Spotify app" >&2
             ;;
         DLNA)
-            # DLNA transport is controlled by the source (Synology), not the receiver.
-            echo "DLNA transport is controlled by the source device" >&2
+            # DLNA transport via UPnP SOAP AVTransport.
+            local port ip url
+            ip="$(ip -4 addr show 2>/dev/null | grep -oP 'inet \K[0-9.]+' | grep -v '^127\.' | head -1)"
+            [[ -z "$ip" ]] && ip="127.0.0.1"
+            port="$(ss -tlnp 2>/dev/null | grep gmediarender | head -1 | grep -oP ':\K[0-9]+' || echo '49494')"
+            url="http://$ip:$port/upnp/control/rendertransport1"
+            local soap_action
+            case "$cmd" in
+                play)     soap_action="Play";;
+                pause)    soap_action="Pause";;
+                stop)     soap_action="Stop";;
+                playpause)
+                    local state
+                    state="$(curl -s -X POST "$url" \
+                        -H 'Content-Type: text/xml; charset="utf-8"' \
+                        -H 'SOAPAction: "urn:schemas-upnp-org:service:AVTransport:1#GetTransportInfo"' \
+                        -d '<?xml version="1.0"?><s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body><u:GetTransportInfo xmlns:u="urn:schemas-upnp-org:service:AVTransport:1"><InstanceID>0</InstanceID></u:GetTransportInfo></s:Body></s:Envelope>' \
+                        2>/dev/null | grep -oP 'CurrentTransportState>\K[^<]+')"
+                    if [[ "$state" == "PLAYING" ]]; then
+                        soap_action="Pause"
+                    else
+                        soap_action="Play"
+                    fi
+                    ;;
+                next)     soap_action="Next";;
+                prev)     soap_action="Previous";;
+            esac
+            local body
+            if [[ "$soap_action" == "Play" ]]; then
+                body="<u:Play xmlns:u=\"urn:schemas-upnp-org:service:AVTransport:1\"><InstanceID>0</InstanceID><Speed>1</Speed></u:Play>"
+            else
+                body="<u:$soap_action xmlns:u=\"urn:schemas-upnp-org:service:AVTransport:1\"><InstanceID>0</InstanceID></u:$soap_action>"
+            fi
+            curl -s -X POST "$url" \
+                -H 'Content-Type: text/xml; charset="utf-8"' \
+                -H "SOAPAction: \"urn:schemas-upnp-org:service:AVTransport:1#$soap_action\"" \
+                -d "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\"><s:Body>$body</s:Body></s:Envelope>" \
+                >/dev/null 2>&1
             ;;
     esac
 }
@@ -285,28 +321,51 @@ cmd_player_info() {
             fi
             ;;
         DLNA)
-            # gmediarender doesn't expose track metadata.
-            # Check if there's an active gmediarender stream in PulseAudio.
-            local gmr_id
-            gmr_id="$(pactl list sink-inputs 2>/dev/null | awk '
-                /^Sink Input #/ { id=substr($3, 2) }
-                /application.name.*=.*gmediarender/ { print id; exit }
-            ')"
-            if [[ -n "$gmr_id" ]]; then
-                # Check if the stream is corked (paused) or playing.
-                local corked
-                corked="$(pactl list sink-inputs 2>/dev/null | awk -v t="$gmr_id" '
-                    /^Sink Input #/ { id=substr($3, 2) }
-                    id==t && /pulse.corked/ { print $3 }
-                ')"
-                if [[ "$corked" == "true" ]]; then
-                    printf 'Paused\t\t\t\t0\t0\n'
-                else
-                    printf 'Playing\t\t\t\t0\t0\n'
-                fi
-            else
-                printf 'Inactive\t\t\t\t0\t0\n'
-            fi
+            # Query gmediarender via UPnP SOAP AVTransport.
+            local port ip
+            ip="$(ip -4 addr show 2>/dev/null | grep -oP 'inet \K[0-9.]+' | grep -v '^127\.' | head -1)"
+            [[ -z "$ip" ]] && ip="127.0.0.1"
+            port="$(ss -tlnp 2>/dev/null | grep gmediarender | head -1 | grep -oP ':\K[0-9]+' || echo '49494')"
+            local url="http://$ip:$port/upnp/control/rendertransport1"
+
+            # GetTransportInfo for status.
+            local status
+            status="$(curl -s -X POST "$url" \
+                -H 'Content-Type: text/xml; charset="utf-8"' \
+                -H 'SOAPAction: "urn:schemas-upnp-org:service:AVTransport:1#GetTransportInfo"' \
+                -d '<?xml version="1.0"?><s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body><u:GetTransportInfo xmlns:u="urn:schemas-upnp-org:service:AVTransport:1"><InstanceID>0</InstanceID></u:GetTransportInfo></s:Body></s:Envelope>' \
+                2>/dev/null | tr -d '\r' | grep -oP 'CurrentTransportState>\K[^<]+' | head -1 || echo '')"
+
+            # GetPositionInfo for track metadata and position.
+            local posinfo title artist album pos dur
+            posinfo="$(curl -s -X POST "$url" \
+                -H 'Content-Type: text/xml; charset="utf-8"' \
+                -H 'SOAPAction: "urn:schemas-upnp-org:service:AVTransport:1#GetPositionInfo"' \
+                -d '<?xml version="1.0"?><s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body><u:GetPositionInfo xmlns:u="urn:schemas-upnp-org:service:AVTransport:1"><InstanceID>0</InstanceID></u:GetPositionInfo></s:Body></s:Envelope>' \
+                2>/dev/null | tr -d '\r' || echo '')"
+
+            # Decode HTML entities in the metadata (DIDL-Lite is XML-encoded).
+            local decoded
+            decoded="$(echo "$posinfo" | python3 -c 'import sys,html; print(html.unescape(sys.stdin.read()))' 2>/dev/null || echo "$posinfo")"
+            # Parse DIDL-Lite metadata for title, artist, album.
+            title="$(echo "$decoded" | grep -oP 'dc:title>\K[^<]+' || echo '')"
+            artist="$(echo "$decoded" | grep -oP 'upnp:artist>\K[^<]+' || echo '')"
+            album="$(echo "$decoded" | grep -oP 'upnp:album>\K[^<]+' || echo '')"
+            dur="$(echo "$posinfo" | grep -oP 'TrackDuration>\K[^<]+' | head -1 || echo '0:00:00')"
+            pos="$(echo "$posinfo" | grep -oP 'RelTime>\K[^<]+' | head -1 || echo '0:00:00')"
+
+            # Convert H:MM:SS to seconds.
+            pos="$(echo "$pos" | awk -F: '{print ($1*60+$2)*60+$3}')"
+            dur="$(echo "$dur" | awk -F: '{print ($1*60+$2)*60+$3}')"
+
+            # Map UPnP states to our format.
+            case "$status" in
+                PLAYING) status="Playing" ;;
+                PAUSED_PLAYBACK) status="Paused" ;;
+                STOPPED|*) status="${status:-Inactive}" ;;
+            esac
+
+            printf '%s\t%s\t%s\t%s\t%s\t%s\n' "${status:-}" "${title:-}" "${artist:-}" "${album:-}" "${pos:-0}" "${dur:-0}"
             ;;
     esac
 }
