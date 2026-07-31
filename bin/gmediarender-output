@@ -237,6 +237,31 @@ cmd_history() {
     [[ -f "$HISTORY_FILE" ]] && tail -"$n" "$HISTORY_FILE" || true
 }
 
+# All-in-one poll: returns services, active player, player info, volume,
+# and current sink in a single call. Reduces DataSource connections.
+# Format: sections separated by lines starting with "###".
+cmd_poll() {
+    echo "### services"
+    cmd_services
+    echo "### active"
+    cmd_active_player
+    local proto
+    proto="$(cmd_active_player)"
+    if [[ -n "$proto" ]]; then
+        echo "### player"
+        cmd_player_info "$proto"
+        echo "### volume"
+        cmd_volume_info "$proto"
+    fi
+    echo "### current"
+    cmd_current
+    echo "### sinks"
+    cmd_sinks
+    echo "### names"
+    cmd_names
+    echo "### end"
+}
+
 # Find the PulseAudio sink-input ID for a given application name.
 pa_sink_input_id() {
     local app="$1"
@@ -517,6 +542,7 @@ case "${1:-}" in
     --volume-info)   cmd_volume_info "${2:-}" ;;
     --active-player) cmd_active_player ;;
     --history)       cmd_history "${2:-20}" ;;
+    --poll)          cmd_poll ;;
     "")             cmd_sinks ;;
     -h|--help)
         sed -n '2,/^$/p' "$0" | sed 's/^# \?//'

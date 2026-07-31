@@ -53,46 +53,105 @@ PlasmoidItem {
 
     function rafraichir() {
         if (!enVie) return;
-        // Services (DLNA, AirPlay, Spotify)
-        shell.lancer("--services", function (sortie) {
-            modeleServices.clear();
-            for (const ligne of sortie.split("\n")) {
-                if (!ligne) continue;
-                const c = ligne.split("\t");
-                if (c.length < 3) continue;
-                modeleServices.append({
-                    nom: c[0],
-                    service: c[1],
-                    actif: c[2] === "1"
-                });
-            }
-        });
-        // Receiver names
-        shell.lancer("--names", function (sortie) {
-            modeleNoms.clear();
-            for (const ligne of sortie.split("\n")) {
-                if (!ligne) continue;
-                const c = ligne.split("\t");
-                if (c.length < 2) continue;
-                modeleNoms.append({ proto: c[0], nom: c[1] });
-            }
-        });
-        // Output devices
-        shell.lancer("--sinks", function (sortie) {
-            modelePeripheriques.clear();
-            for (const ligne of sortie.split("\n")) {
-                if (!ligne) continue;
-                const c = ligne.split("\t");
-                if (c.length < 3) continue;
-                modelePeripheriques.append({
-                    description: c[0],
-                    nom: c[1],
-                    estActif: c[2] === "1"
-                });
-                if (c[2] === "1") {
-                    root.peripheriqueActuel = c[1];
-                    root.descriptionActive = c[0];
-                    root.dernierEtat = c[1];
+        poll();
+    }
+
+    // Single --poll call: returns services, active player, player info,
+    // volume, current sink, sinks, and names in one output. This avoids
+    // multiple concurrent DataSource connections that crash plasmashell.
+    function poll() {
+        if (!enVie) return;
+        shell.lancer("--poll", function (sortie) {
+            if (!enVie) return;
+            var section = "";
+            var lines = sortie.split("\n");
+            for (var i = 0; i < lines.length; i++) {
+                var line = lines[i];
+                if (line.startsWith("### ")) {
+                    section = line.substring(4);
+                    continue;
+                }
+                if (line === "### end") break;
+                var c = line.split("\t");
+
+                switch (section) {
+                case "services":
+                    if (c.length >= 3) {
+                        // Check if we need to update the model.
+                        var found = false;
+                        for (var j = 0; j < modeleServices.count; j++) {
+                            var e = modeleServices.get(j);
+                            if (e.nom === c[0]) {
+                                e.service = c[1];
+                                e.actif = c[2] === "1";
+                                found = true;
+                                break;
+                            }
+                        }
+                        if (!found) {
+                            modeleServices.append({ nom: c[0], service: c[1], actif: c[2] === "1" });
+                        }
+                    }
+                    break;
+                case "active":
+                    var proto = line.trim();
+                    if (proto === "") joueurActif = "";
+                    break;
+                case "player":
+                    if (c.length >= 6) {
+                        joueurActif = c[0] || joueurActif;
+                        playerStatus = c[0];
+                        playerTitle = c[1];
+                        playerArtist = c[2];
+                        playerAlbum = c[3];
+                        playerPosition = parseFloat(c[4]) || 0;
+                        playerDuration = parseFloat(c[5]) || 0;
+                    }
+                    break;
+                case "volume":
+                    playerVolume = parseInt(line) || 0;
+                    break;
+                case "current":
+                    dernierEtat = line.trim();
+                    break;
+                case "sinks":
+                    if (c.length >= 3) {
+                        // Update model in place.
+                        var sfound = false;
+                        for (var k = 0; k < modelePeripheriques.count; k++) {
+                            var s = modelePeripheriques.get(k);
+                            if (s.nom === c[1]) {
+                                s.description = c[0];
+                                s.estActif = c[2] === "1";
+                                sfound = true;
+                                break;
+                            }
+                        }
+                        if (!sfound) {
+                            modelePeripheriques.append({ description: c[0], nom: c[1], estActif: c[2] === "1" });
+                        }
+                        if (c[2] === "1") {
+                            root.peripheriqueActuel = c[1];
+                            root.descriptionActive = c[0];
+                        }
+                    }
+                    break;
+                case "names":
+                    if (c.length >= 2) {
+                        var nfound = false;
+                        for (var m = 0; m < modeleNoms.count; m++) {
+                            var n = modeleNoms.get(m);
+                            if (n.proto === c[0]) {
+                                n.nom = c[1];
+                                nfound = true;
+                                break;
+                            }
+                        }
+                        if (!nfound) {
+                            modeleNoms.append({ proto: c[0], nom: c[1] });
+                        }
+                    }
+                    break;
                 }
             }
         });
@@ -147,81 +206,15 @@ PlasmoidItem {
 
     property bool enVie: true
 
-    function rafraichirPlayer() {
-        if (occupe || !enVie) return;
-        // Ask the CLI which protocol has an active stream.
-        shell.lancer("--active-player", function (proto) {
-            if (!enVie) return;
-            proto = proto.trim();
-            if (proto === "") {
-                joueurActif = "";
-                return;
-            }
-            joueurActif = proto;
-            // Query player info — this also logs track history.
-            shell.lancer("--player-info " + proto, function (sortie) {
-                if (!enVie) return;
-                var c = sortie.split("\t");
-                if (c.length >= 6) {
-                    playerStatus = c[0];
-                    playerTitle = c[1];
-                    playerArtist = c[2];
-                    playerAlbum = c[3];
-                    playerPosition = parseFloat(c[4]) || 0;
-                    playerDuration = parseFloat(c[5]) || 0;
-                }
-            });
-            // Query volume separately.
-            shell.lancer("--volume-info " + proto, function (vol) {
-                if (!enVie) return;
-                playerVolume = parseInt(vol) || 0;
-            });
-        });
-    }
-
     Component.onCompleted: rafraichir()
     Component.onDestruction: enVie = false
 
-    // Polling : vérifie si le sink actif a changé (switch externe).
-    Timer {
-        interval: 500; running: true; repeat: true
-        onTriggered: {
-            if (root.occupe || !root.enVie) return
-            shell.lancer("--current", function (sortie) {
-                if (!root.enVie) return
-                if (sortie !== root.dernierEtat) {
-                    root.dernierEtat = sortie
-                    root.rafraichir()
-                }
-            })
-        }
-    }
-
-    // Polling des services : vérifie toutes les 3 s si un service a changé d'état.
-    Timer {
-        interval: 3000; running: true; repeat: true
-        onTriggered: {
-            if (!root.occupe && root.enVie) {
-                shell.lancer("--services", function (sortie) {
-                    if (!root.enVie) return
-                    modeleServices.clear();
-                    for (const ligne of sortie.split("\n")) {
-                        if (!ligne) continue;
-                        const c = ligne.split("\t");
-                        if (c.length < 3) continue;
-                        modeleServices.append({
-                            nom: c[0], service: c[1], actif: c[2] === "1"
-                        });
-                    }
-                })
-            }
-        }
-    }
-
-    // Polling du player : met à jour les infos de lecture toutes les 1 s.
+    // Single polling timer: one --poll call every 1s replaces the
+    // previous 3 timers (500ms, 1s, 3s) that each launched multiple
+    // DataSource connections and crashed plasmashell.
     Timer {
         interval: 1000; running: true; repeat: true
-        onTriggered: if (root.enVie) root.rafraichirPlayer()
+        onTriggered: if (!root.occupe && root.enVie) root.poll()
     }
 
     // Délai avant rafraîchissement après une commande de transport :
@@ -229,7 +222,7 @@ PlasmoidItem {
     Timer {
         id: delaiRafraichir
         interval: 500
-        onTriggered: root.rafraichirPlayer()
+        onTriggered: root.poll()
     }
 
     readonly property string icone: "org.gmediarender.kde"
