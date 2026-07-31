@@ -1,11 +1,18 @@
 # Bureau Receivers — KDE Plasma applet
 
+***English** · [Français](README.fr.md)*
+
 A Plasma 6 widget that turns your Linux machine into a **multi-protocol audio
 receiver** — DLNA, AirPlay, and Spotify Connect — with live output device
 switching, player controls, and track history.
 
 <p align="center">
   <img src="plasmoid/contents/icons/gmediarender.svg" width="120" alt="Bureau Receivers icon">
+</p>
+
+<p align="center">
+  <img src="screenshots/Applet.png" width="400" alt="The applet panel showing receivers and output devices">
+  <img src="screenshots/Applet-playing.png" width="400" alt="The applet with a track playing — now playing info, timeline, transport controls">
 </p>
 
 ## What it does
