@@ -50,6 +50,8 @@ PlasmoidItem {
     ListModel { id: modeleServices }
     ListModel { id: modelePeripheriques }
     ListModel { id: modeleNoms }  // protocol <TAB> name
+    ListModel { id: modeleGroupes }
+    ListModel { id: modeleDistants }
 
     function rafraichir() {
         if (!enVie) return;
@@ -152,9 +154,59 @@ PlasmoidItem {
                         }
                     }
                     break;
+                case "groups":
+                    // TSV: name, members, applied(0/1)
+                    if (c.length >= 3) {
+                        var gfound = false;
+                        for (var g = 0; g < modeleGroupes.count; g++) {
+                            var ge = modeleGroupes.get(g);
+                            if (ge.nom === c[0]) {
+                                ge.membres = c[1];
+                                ge.applique = c[2] === "1";
+                                gfound = true;
+                                break;
+                            }
+                        }
+                        if (!gfound) {
+                            modeleGroupes.append({
+                                nom: c[0], membres: c[1], applique: c[2] === "1"
+                            });
+                        }
+                    }
+                    break;
+                case "remotes":
+                    // TSV: id, name, type, sink, up(0/1)
+                    if (c.length >= 5) {
+                        var rfound = false;
+                        for (var r = 0; r < modeleDistants.count; r++) {
+                            var re = modeleDistants.get(r);
+                            if (re.id === c[0]) {
+                                re.nom = c[1];
+                                re.type = c[2];
+                                re.actif = c[4] === "1";
+                                rfound = true;
+                                break;
+                            }
+                        }
+                        if (!rfound) {
+                            modeleDistants.append({
+                                id: c[0], nom: c[1], type: c[2], actif: c[4] === "1"
+                            });
+                        }
+                    }
+                    break;
                 }
             }
         });
+    }
+
+    // Returns the name of the currently applied group, or "".
+    function groupeApplique() {
+        for (var i = 0; i < modeleGroupes.count; i++) {
+            var g = modeleGroupes.get(i);
+            if (g.applique) return g.nom;
+        }
+        return "";
     }
 
     function basculer(nom) {
@@ -201,6 +253,77 @@ PlasmoidItem {
         shell.lancer("--rename-all '" + safeNom + "'", function () {
             occupe = false;
             rafraichir();
+        });
+    }
+
+    // --- Multi-room actions ---
+
+    function appliquerGroupe(nom) {
+        if (occupe || !nom) return;
+        occupe = true;
+        const safe = nom.replace(/'/g, "'\\''");
+        shell.lancer("--group-apply '" + safe + "'", function () {
+            occupe = false;
+            poll();
+        });
+    }
+
+    function leverGroupe() {
+        if (occupe) return;
+        occupe = true;
+        shell.lancer("--group-unapply", function () {
+            occupe = false;
+            poll();
+        });
+    }
+
+    function basculerDistante(id) {
+        if (occupe || !id) return;
+        occupe = true;
+        // Figure out whether it is up by looking at the model.
+        var up = false;
+        for (var i = 0; i < modeleDistants.count; i++) {
+            var d = modeleDistants.get(i);
+            if (d.id === id) { up = d.actif; break; }
+        }
+        const cmd = up ? "--remote-down " : "--remote-up ";
+        shell.lancer(cmd + id, function () {
+            occupe = false;
+            poll();
+        });
+    }
+
+    // Open a discover + save dialog handled by the CLI.
+    function ajouterAppareil() {
+        if (occupe) return;
+        occupe = true;
+        shell.lancer("--discover", function (sortie) {
+            occupe = false;
+            // Feed results into a picker; simple approach: append any
+            // discovered device that isn't known yet.
+            var lignes = sortie.split("\n");
+            var toAdd = [];
+            for (var i = 0; i < lignes.length; i++) {
+                if (!lignes[i]) continue;
+                var c = lignes[i].split("\t");
+                if (c.length < 5) continue;
+                var known = false;
+                for (var k = 0; k < modeleDistants.count; k++) {
+                    if (modeleDistants.get(k).id === c[4]) { known = true; break; }
+                }
+                if (!known) toAdd.push(c);
+            }
+            if (toAdd.length === 0) { poll(); return; }
+            // Add them sequentially.
+            var idx = 0;
+            function next() {
+                if (idx >= toAdd.length) { poll(); return; }
+                var c = toAdd[idx++];
+                var spec = c[0] + ":" + c[1] + ":" + c[2] + ":" + c[3];
+                var safe = spec.replace(/'/g, "'\\''");
+                shell.lancer("--add-device '" + safe + "'", function () { next(); });
+            }
+            next();
         });
     }
 
@@ -502,6 +625,110 @@ PlasmoidItem {
                 Layout.topMargin: Kirigami.Units.smallSpacing
                 Layout.bottomMargin: Kirigami.Units.smallSpacing
                 visible: joueurActif !== ""
+            }
+
+            // --- Section : Multi-room groups ---
+            Kirigami.Separator {
+                Layout.fillWidth: true
+                Layout.topMargin: Kirigami.Units.smallSpacing
+                Layout.bottomMargin: Kirigami.Units.smallSpacing
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.leftMargin: Kirigami.Units.smallSpacing
+                Layout.rightMargin: Kirigami.Units.smallSpacing
+
+                PlasmaComponents.Label {
+                    text: i18n("Multi-room")
+                    font: Kirigami.Theme.smallFont
+                    opacity: 0.6
+                    Layout.fillWidth: true
+                }
+
+                PlasmaComponents.ToolButton {
+                    icon.name: "list-add"
+                    enabled: !root.occupe
+                    onClicked: root.ajouterAppareil()
+                    PlasmaComponents.ToolTip.text: i18n("Discover and add devices")
+                    PlasmaComponents.ToolTip.visible: hovered
+                    PlasmaComponents.ToolTip.delay: 700
+                }
+                PlasmaComponents.ToolButton {
+                    icon.name: "edit-delete"
+                    enabled: !root.occupe && root.groupeApplique() !== ""
+                    onClicked: root.leverGroupe()
+                    PlasmaComponents.ToolTip.text: i18n("Stop multi-room")
+                    PlasmaComponents.ToolTip.visible: hovered
+                    PlasmaComponents.ToolTip.delay: 700
+                }
+            }
+
+            // Saved groups
+            Repeater {
+                model: modeleGroupes
+                delegate: PlasmaComponents.ItemDelegate {
+                    Layout.fillWidth: true
+                    enabled: !root.occupe && !model.applique
+                    onClicked: root.appliquerGroupe(model.nom)
+
+                    contentItem: RowLayout {
+                        spacing: Kirigami.Units.smallSpacing
+                        Kirigami.Icon {
+                            source: model.applique ? "checkmark" : "media-playlist-repeat"
+                            Layout.preferredWidth: Kirigami.Units.iconSizes.small
+                            Layout.preferredHeight: Kirigami.Units.iconSizes.small
+                            opacity: model.applique ? 1.0 : 0.6
+                        }
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 0
+                            PlasmaComponents.Label {
+                                text: model.nom
+                                font.bold: model.applique
+                                elide: Text.ElideRight
+                                Layout.fillWidth: true
+                            }
+                            PlasmaComponents.Label {
+                                text: model.membres
+                                font: Kirigami.Theme.smallFont
+                                opacity: 0.55
+                                elide: Text.ElideRight
+                                Layout.fillWidth: true
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Known remote devices with an on/off toggle
+            Repeater {
+                model: modeleDistants
+                delegate: RowLayout {
+                    Layout.fillWidth: true
+                    Layout.leftMargin: Kirigami.Units.smallSpacing * 2
+                    Layout.rightMargin: Kirigami.Units.smallSpacing
+                    spacing: Kirigami.Units.smallSpacing
+
+                    Kirigami.Icon {
+                        source: model.type === "airplay" ? "video-telephone" : "network-server"
+                        Layout.preferredWidth: Kirigami.Units.iconSizes.small
+                        Layout.preferredHeight: Kirigami.Units.iconSizes.small
+                        opacity: model.actif ? 1.0 : 0.45
+                    }
+                    PlasmaComponents.Label {
+                        text: model.nom
+                        Layout.fillWidth: true
+                        font: Kirigami.Theme.smallFont
+                        opacity: model.actif ? 0.95 : 0.55
+                        elide: Text.ElideRight
+                    }
+                    PlasmaComponents.Switch {
+                        checked: model.actif
+                        enabled: !root.occupe
+                        onClicked: root.basculerDistante(model.id)
+                    }
+                }
             }
 
             // --- Section : Output devices ---

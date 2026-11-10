@@ -20,6 +20,10 @@ set -euo pipefail
 
 CONF="${XDG_CONFIG_HOME:-$HOME/.config}/gmediarender.conf"
 
+# Multi-room support (discovery, remote sinks, groups). Sourced lazily so a
+# missing library never breaks the single-room commands.
+BUREAU_LIB="${BUREAU_LIB:-$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../lib/multiroom.sh}"
+
 # Services: friendly_name <TAB> systemd_unit
 SERVICES=(
     "DLNA	gmediarender.service"
@@ -259,6 +263,18 @@ cmd_poll() {
     cmd_sinks
     echo "### names"
     cmd_names
+
+    # Multi-room sections. Guarded so a missing library simply omits them.
+    if [[ -f "$BUREAU_LIB" ]]; then
+        # shellcheck source=../lib/multiroom.sh
+        source "$BUREAU_LIB" 2>/dev/null && {
+            echo "### groups"
+            cmd_groups 2>/dev/null || true
+            echo "### remotes"
+            cmd_remote_status 2>/dev/null || true
+        }
+    fi
+
     echo "### end"
 }
 
@@ -543,6 +559,25 @@ case "${1:-}" in
     --active-player) cmd_active_player ;;
     --history)       cmd_history "${2:-20}" ;;
     --poll)          cmd_poll ;;
+
+    # --- Multi-room ---
+    --discover|--devices|--add-device|--remove-device| \
+    --remote-up|--remote-down|--remote-status| \
+    --groups|--group-save|--group-delete|--group-apply|--group-active|--group-unapply)
+        if [[ ! -f "$BUREAU_LIB" ]]; then
+            echo "multiroom library not found: $BUREAU_LIB" >&2
+            exit 1
+        fi
+        # shellcheck source=../lib/multiroom.sh
+        source "$BUREAU_LIB"
+        # Strip the leading -- and turn dashes into underscores: --remote-up
+        # becomes cmd_remote_up. Arguments are forwarded as "$@".
+        br_fn="cmd_${1#--}"
+        br_fn="${br_fn//-/_}"
+        shift
+        "$br_fn" "$@"
+        ;;
+
     "")             cmd_sinks ;;
     -h|--help)
         sed -n '2,/^$/p' "$0" | sed 's/^# \?//'

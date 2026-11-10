@@ -32,10 +32,97 @@ switching, player controls, and track history.
   (one name updates all three with protocol suffixes)
 - **Track history**: every track logged to `~/.config/bureau-receivers/history.tsv`
   with timestamp, protocol, title, artist, album. Indefinite, deduplicated.
+- **Multi-room**: save named groups (this host + 1..N remote DLNA/AirPlay
+  devices) and switch to one with a single click. See [Multi-room](#multi-room).
 
 [gmr]: https://github.com/hzeller/gmrender-resurrect
 [sps]: https://github.com/mikebrady/shairport-sync
 [lrs]: https://github.com/librespot-org/librespot
+
+## Multi-room
+
+Play the same stream on the local host **and** on several remote DLNA or AirPlay
+devices at once — for example `Office (this host) + RX-V777 (192.168.1.177)`.
+
+```mermaid
+flowchart LR
+    A["gmediarender / shairport / librespot"] --> B["Group sink<br/>module-combine-sink"]
+    B --> C["Local sink<br/>Office (this host)"]
+    B --> D["pa-dlna sink<br/>bureau-rx-v777"]
+    D -.-> E["RX-V777<br/>192.168.1.177"]
+```
+
+### How it works
+
+A virtual **group sink** is created with PipeWire's PulseAudio-compatible
+`module-combine-sink`, with one member per device. Receiver streams
+(`gmediarender`, `shairport-sync`, `librespot`) are then moved onto that sink,
+so every member plays the same audio.
+
+| Device type | Sink is provided by | Notes |
+|---|---|---|
+| Local host | any PipeWire/PulseAudio sink | the default sink is used as the `local` member |
+| DLNA | `pa-dlna` (AUR) | one `pa-dlna` process per device, one sink each |
+| AirPlay | `module-raop-sink` (`pipewire-zeroconf`) | one config drop-in per device |
+
+### Synchronisation is approximate
+
+Consumer AV receivers buffer audio internally and expose no clock-sync API, so
+the rooms will be offset by roughly **100–500 ms**. This is fine for background
+music; it is not sample-accurate. True sample-accurate sync needs a client
+running on each device (Snapcast), which an AV receiver cannot do.
+
+### Requirements
+
+```bash
+# DLNA remote outputs
+yay -S pa-dlna
+
+# AirPlay remote outputs
+sudo pacman -S pipewire-zeroconf
+
+# Discovery
+sudo pacman -S socat avahi
+```
+
+`pa-dlna` and `pipewire-zeroconf` are both optional: without them, groups simply
+fall back to the local sink plus whichever devices are still available.
+
+### Usage
+
+Add devices — the applet's **+** button discovers and saves them, or do it by hand:
+
+```bash
+gmediarender-output --discover                      # scan the LAN
+# dlna    Living Room   192.168.1.50   49494   living-room
+# airplay RX-V777       192.168.1.177  1024    rx-v777
+
+gmediarender-output --add-device airplay:RX-V777:192.168.1.177:1024
+gmediarender-output --devices                       # list known devices
+```
+
+Create and apply a group:
+
+```bash
+gmediarender-output --group-save "Bureau+RXV" local,rx-v777
+gmediarender-output --groups                        # list, with applied flag
+gmediarender-output --group-apply "Bureau+RXV"      # bring up + switch
+gmediarender-output --group-unapply                 # back to single-room
+```
+
+In the applet, the **Multi-room** section lists saved groups; click one to apply
+it (checkmark = active). The **+** button discovers devices, the trash button
+stops multi-room, and each known device has an on/off switch.
+
+### Troubleshooting
+
+| Symptom | Cause |
+|---|---|
+| `pa-dlna not installed` | install `pa-dlna` from the AUR for DLNA outputs |
+| `PipeWire RAOP module not found` | install `pipewire-zeroconf`, then re-apply the group |
+| Audio restarts when applying a group | AirPlay sinks need a PipeWire restart (config drop-in) |
+| Rooms drift apart by a few hundred ms | expected; see *Synchronisation is approximate* |
+| Device not discovered | check `avahi-daemon` is running and the device is on the same subnet |
 
 ## Requirements
 

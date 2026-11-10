@@ -34,10 +34,101 @@ périphérique de sortie en direct, contrôles de lecture et historique des pist
 - **Historique des pistes** : chaque piste est enregistrée dans
   `~/.config/bureau-receivers/history.tsv` avec horodatage, protocole, titre,
   artiste, album. Illimité, sans doublons.
+- **Multi-room** : enregistrez des groupes nommés (cet hôte + 1..N appareils
+  DLNA/AirPlay distants) et basculez dessus en un clic. Voir [Multi-room](#multi-room).
 
 [gmr]: https://github.com/hzeller/gmrender-resurrect
 [sps]: https://github.com/mikebrady/shairport-sync
 [lrs]: https://github.com/librespot-org/librespot
+
+## Multi-room
+
+Diffusez le même flux sur l'hôte local **et** sur plusieurs appareils DLNA ou
+AirPlay distants en même temps — par exemple `Bureau (cet hôte) + RX-V777
+(192.168.1.177)`.
+
+```mermaid
+flowchart LR
+    A["gmediarender / shairport / librespot"] --> B["Sink de groupe<br/>module-combine-sink"]
+    B --> C["Sink local<br/>Bureau (cet hôte)"]
+    B --> D["Sink pa-dlna<br/>bureau-rx-v777"]
+    D -.-> E["RX-V777<br/>192.168.1.177"]
+```
+
+### Fonctionnement
+
+Un **sink de groupe** virtuel est créé avec `module-combine-sink` (couche de
+compatibilité PulseAudio de PipeWire), avec un membre par appareil. Les flux des
+récepteurs (`gmediarender`, `shairport-sync`, `librespot`) sont ensuite déplacés
+vers ce sink, de sorte que chaque membre diffuse le même son.
+
+| Type d'appareil | Sink fourni par | Remarques |
+|---|---|---|
+| Hôte local | n'importe quel sink PipeWire/PulseAudio | le sink par défaut sert de membre `local` |
+| DLNA | `pa-dlna` (AUR) | un processus `pa-dlna` par appareil, un sink chacun |
+| AirPlay | `module-raop-sink` (`pipewire-zeroconf`) | un fichier de configuration par appareil |
+
+### La synchronisation est approximative
+
+Les amplis grand public mettent l'audio en tampon et n'exposent aucune API de
+synchronisation d'horloge : les pièces seront décalées d'environ **100 à 500 ms**.
+C'est acceptable pour de la musique d'ambiance, mais ce n'est pas
+échantillon-exact. Une vraie synchronisation échantillon-exacte exige un client
+sur chaque appareil (Snapcast), ce qu'un ampli AV ne peut pas exécuter.
+
+### Prérequis
+
+```bash
+# Sorties DLNA distantes
+yay -S pa-dlna
+
+# Sorties AirPlay distantes
+sudo pacman -S pipewire-zeroconf
+
+# Découverte
+sudo pacman -S socat avahi
+```
+
+`pa-dlna` et `pipewire-zeroconf` sont tous deux optionnels : sans eux, les
+groupes se rabattent simplement sur le sink local plus les appareils encore
+disponibles.
+
+### Utilisation
+
+Ajoutez des appareils — le bouton **+** de l'applet les découvre et les
+enregistre, ou faites-le à la main :
+
+```bash
+gmediarender-output --discover                      # scan du réseau
+# dlna    Salon        192.168.1.50   49494   salon
+# airplay RX-V777      192.168.1.177  1024    rx-v777
+
+gmediarender-output --add-device airplay:RX-V777:192.168.1.177:1024
+gmediarender-output --devices                       # liste des appareils connus
+```
+
+Créez et appliquez un groupe :
+
+```bash
+gmediarender-output --group-save "Bureau+RXV" local,rx-v777
+gmediarender-output --groups                        # liste, avec l'indicateur appliqué
+gmediarender-output --group-apply "Bureau+RXV"      # active + bascule
+gmediarender-output --group-unapply                 # retour au mono-pièce
+```
+
+Dans l'applet, la section **Multi-room** liste les groupes enregistrés ; cliquez
+sur l'un pour l'appliquer (coche = actif). Le bouton **+** découvre les appareils,
+la corbeille arrête le multi-room, et chaque appareil connu a un interrupteur.
+
+### Dépannage
+
+| Symptôme | Cause |
+|---|---|
+| `pa-dlna not installed` | installez `pa-dlna` depuis l'AUR pour les sorties DLNA |
+| `PipeWire RAOP module not found` | installez `pipewire-zeroconf`, puis réappliquez le groupe |
+| L'audio redémarre à l'application d'un groupe | les sinks AirPlay exigent un redémarrage de PipeWire |
+| Les pièces dérivent de quelques centaines de ms | normal ; voir *La synchronisation est approximative* |
+| Appareil non découvert | vérifiez que `avahi-daemon` tourne et que l'appareil est sur le même sous-réseau |
 
 ## Prérequis
 

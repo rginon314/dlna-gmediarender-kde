@@ -135,7 +135,32 @@ BIN_DIR="$HOME/.local/bin"
 mkdir -p "$BIN_DIR"
 install -m755 "$PROJET/bin/gmediarender-output" "$BIN_DIR/gmediarender-output"
 
+# Multi-room library: the CLI looks for it next to itself (../lib).
+LIB_DIR="$HOME/.local/lib"
+mkdir -p "$LIB_DIR"
+install -m644 "$PROJET/lib/multiroom.sh" "$LIB_DIR/multiroom.sh"
+
 vert "  $BIN_DIR/gmediarender-output installé"
+vert "  $LIB_DIR/multiroom.sh installé (multi-room)"
+
+# Multi-room optional dependencies.
+if command -v pacman >/dev/null 2>&1; then
+    # pipewire-zeroconf provides module-raop-sink (AirPlay remote sinks).
+    if ! pacman -Qq pipewire-zeroconf >/dev/null 2>&1; then
+        jaune "  pipewire-zeroconf absent — les sorties AirPlay distantes seront indisponibles"
+        jaune "    Installer avec : sudo pacman -S pipewire-zeroconf"
+    fi
+    # pa-dlna is AUR-only.
+    if ! command -v pa-dlna >/dev/null 2>&1; then
+        jaune "  pa-dlna absent — les sorties DLNA distantes seront indisponibles"
+        jaune "    Installer avec : yay -S pa-dlna"
+    fi
+fi
+# socat makes SSDP discovery fast; avahi powers AirPlay discovery.
+command -v socat >/dev/null 2>&1 || jaune "  socat absent — découverte SSDP (DLNA) ignorée"
+command -v avahi-browse >/dev/null 2>&1 || jaune "  avahi-browse absent — découverte AirPlay ignorée"
+
+mkdir -p "$HOME/.config/bureau-receivers"
 
 # ---------------------------------------------------------------------------
 # 3. Configuration
